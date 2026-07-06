@@ -231,7 +231,7 @@ sb.auth.onAuthStateChange(function(event,session){
   }
 });
 
-/* ── BILLING (Razorpay) ── */
+/* ── BILLING (Stripe) ── */
 function getBtnLabel(btnEl){
   var span=btnEl.querySelector('.btn-label');
   return span?span.textContent:btnEl.textContent;
@@ -251,7 +251,7 @@ async function handleSubscribe(btnEl){
   if(!session){ btnEl.disabled=false; setBtnLabel(btnEl,originalText); return; }
 
   try{
-    var resp=await fetch('/.netlify/functions/create-payment-link',{
+    var resp=await fetch('/.netlify/functions/create-checkout-session',{
       method:'POST',
       headers:{
         'Authorization':'Bearer '+session.access_token,
@@ -266,7 +266,7 @@ async function handleSubscribe(btnEl){
       setBtnLabel(btnEl,originalText);
       return;
     }
-    window.location.href=data.short_url;
+    window.location.href=data.url;
   }catch(e){
     alert('Network error starting payment.');
     btnEl.disabled=false;
@@ -295,7 +295,7 @@ function applySubscribeVisibility(){
 
 function checkPostPaymentRedirect(){
   var params=new URLSearchParams(window.location.search);
-  if(params.has('razorpay_payment_id')){
+  if(params.has('stripe_session_id')){
     window.history.replaceState({},document.title,window.location.pathname);
     pollForActivation(0);
   }
