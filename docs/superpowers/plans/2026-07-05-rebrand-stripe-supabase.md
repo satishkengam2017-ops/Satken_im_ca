@@ -372,7 +372,7 @@ handler({
   assert.strictEqual(result.statusCode, 200);
   assert.strictEqual(JSON.parse(result.body).url, 'https://checkout.stripe.com/pay/cs_test_123');
   var stripeCall = calls[1];
-  assert.ok(stripeCall.opts.body.indexOf('metadata%5Border_id%5D=org1') !== -1, 'metadata.org_id missing from Stripe request body');
+  assert.ok(stripeCall.opts.body.indexOf('metadata%5Borg_id%5D=org1') !== -1, 'metadata.org_id missing from Stripe request body');
   assert.ok(stripeCall.opts.body.indexOf('unit_amount%5D=9900') !== -1, 'unit_amount is not 9900');
   console.log('create-checkout-session dry run passed');
 });
