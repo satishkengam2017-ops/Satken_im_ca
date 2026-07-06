@@ -1,5 +1,5 @@
-var SUPABASE_URL='https://lpjdurwfiidrztinjzyn.supabase.co';
-var SUPABASE_ANON_KEY='sb_publishable_C88ixlj-EhwMHCxf3hmHuA_XmKsJthQ';
+var SUPABASE_URL='https://gkhayphmzopttyasclww.supabase.co';
+var SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdraGF5cGhtem9wdHR5YXNjbHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzMDQxNjgsImV4cCI6MjA5ODg4MDE2OH0.dcrcYJG3eLQL9bM_1K-1y4F-8C7ebxBHhURzevaeaFE';
 var sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
 var currentUser=null;
@@ -231,7 +231,7 @@ sb.auth.onAuthStateChange(function(event,session){
   }
 });
 
-/* ── BILLING (Razorpay) ── */
+/* ── BILLING (Stripe) ── */
 function getBtnLabel(btnEl){
   var span=btnEl.querySelector('.btn-label');
   return span?span.textContent:btnEl.textContent;
@@ -251,7 +251,7 @@ async function handleSubscribe(btnEl){
   if(!session){ btnEl.disabled=false; setBtnLabel(btnEl,originalText); return; }
 
   try{
-    var resp=await fetch('/.netlify/functions/create-payment-link',{
+    var resp=await fetch('/.netlify/functions/create-checkout-session',{
       method:'POST',
       headers:{
         'Authorization':'Bearer '+session.access_token,
@@ -266,7 +266,7 @@ async function handleSubscribe(btnEl){
       setBtnLabel(btnEl,originalText);
       return;
     }
-    window.location.href=data.short_url;
+    window.location.href=data.url;
   }catch(e){
     alert('Network error starting payment.');
     btnEl.disabled=false;
@@ -295,7 +295,7 @@ function applySubscribeVisibility(){
 
 function checkPostPaymentRedirect(){
   var params=new URLSearchParams(window.location.search);
-  if(params.has('razorpay_payment_id')){
+  if(params.has('stripe_session_id')){
     window.history.replaceState({},document.title,window.location.pathname);
     pollForActivation(0);
   }

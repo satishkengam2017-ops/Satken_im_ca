@@ -1,6 +1,7 @@
-// Creates a Razorpay Payment Link for a store's ₹999/year subscription.
-// Uses plain fetch against Supabase's REST API (no @supabase/supabase-js
-// dependency) so the function has zero npm install step to fail at deploy time.
+// Creates a Stripe Checkout Session for a store's $99/year subscription.
+// Uses plain fetch against Stripe's REST API (no `stripe` npm package) and
+// against Supabase's REST API (no @supabase/supabase-js dependency) so the
+// function has zero npm install step to fail at deploy time.
 
 exports.handler = async function(event){
   if(event.httpMethod !== 'POST'){
@@ -47,32 +48,34 @@ exports.handler = async function(event){
 
   var orgName = (membershipRows[0].organizations && membershipRows[0].organizations.name) || 'your store';
 
-  var rzpAuth = Buffer.from(process.env.RAZORPAY_KEY_ID + ':' + process.env.RAZORPAY_KEY_SECRET).toString('base64');
-  var rzpResp;
+  var params = new URLSearchParams();
+  params.append('mode','payment');
+  params.append('success_url','https://satken-im.netlify.app/?stripe_session_id={CHECKOUT_SESSION_ID}');
+  params.append('cancel_url','https://satken-im.netlify.app/');
+  params.append('line_items[0][quantity]','1');
+  params.append('line_items[0][price_data][currency]','usd');
+  params.append('line_items[0][price_data][unit_amount]','9900');
+  params.append('line_items[0][price_data][product_data][name]','SATKEN annual subscription — ' + orgName);
+  params.append('metadata[org_id]', orgId);
+
+  var stripeResp;
   try{
-    rzpResp = await fetch('https://api.razorpay.com/v1/payment_links', {
+    stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
       headers: {
-        'Authorization': 'Basic ' + rzpAuth,
-        'Content-Type': 'application/json'
+        'Authorization': 'Basic ' + Buffer.from(process.env.STRIPE_SECRET_KEY + ':').toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: JSON.stringify({
-        amount: 99900, // paise — ₹999.00
-        currency: 'INR',
-        description: 'SATKEN annual subscription — ' + orgName,
-        callback_url: 'https://satken-im.netlify.app/',
-        callback_method: 'get',
-        notes: { org_id: orgId }
-      })
+      body: params.toString()
     });
   }catch(e){
-    return { statusCode: 502, body: JSON.stringify({error:'could not reach Razorpay'}) };
+    return { statusCode: 502, body: JSON.stringify({error:'could not reach Stripe'}) };
   }
 
-  var rzpData = await rzpResp.json();
-  if(!rzpResp.ok){
-    return { statusCode: 502, body: JSON.stringify({error:'razorpay error', detail: rzpData}) };
+  var stripeData = await stripeResp.json();
+  if(!stripeResp.ok){
+    return { statusCode: 502, body: JSON.stringify({error:'stripe error', detail: stripeData}) };
   }
 
-  return { statusCode: 200, body: JSON.stringify({ short_url: rzpData.short_url }) };
+  return { statusCode: 200, body: JSON.stringify({ url: stripeData.url }) };
 };
