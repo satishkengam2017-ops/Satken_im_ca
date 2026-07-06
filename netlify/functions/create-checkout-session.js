@@ -1,4 +1,4 @@
-// Creates a Stripe Checkout Session for a store's $99/year subscription.
+// Creates a Stripe Checkout Session for a store's $9/month subscription.
 // Uses plain fetch against Stripe's REST API (no `stripe` npm package) and
 // against Supabase's REST API (no @supabase/supabase-js dependency) so the
 // function has zero npm install step to fail at deploy time.
@@ -49,14 +49,16 @@ exports.handler = async function(event){
   var orgName = (membershipRows[0].organizations && membershipRows[0].organizations.name) || 'your store';
 
   var params = new URLSearchParams();
-  params.append('mode','payment');
+  params.append('mode','subscription');
   params.append('success_url','https://satken-im.netlify.app/?stripe_session_id={CHECKOUT_SESSION_ID}');
   params.append('cancel_url','https://satken-im.netlify.app/');
   params.append('line_items[0][quantity]','1');
   params.append('line_items[0][price_data][currency]','usd');
-  params.append('line_items[0][price_data][unit_amount]','100');
-  params.append('line_items[0][price_data][product_data][name]','SATKEN annual subscription — ' + orgName);
+  params.append('line_items[0][price_data][unit_amount]','900');
+  params.append('line_items[0][price_data][recurring][interval]','month');
+  params.append('line_items[0][price_data][product_data][name]','SATKEN monthly subscription — ' + orgName);
   params.append('metadata[org_id]', orgId);
+  params.append('subscription_data[metadata][org_id]', orgId);
 
   var stripeResp;
   try{
