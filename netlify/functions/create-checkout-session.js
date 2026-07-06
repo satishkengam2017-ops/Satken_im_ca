@@ -54,7 +54,7 @@ exports.handler = async function(event){
   params.append('cancel_url','https://satken-im.netlify.app/');
   params.append('line_items[0][quantity]','1');
   params.append('line_items[0][price_data][currency]','usd');
-  params.append('line_items[0][price_data][unit_amount]','9900');
+  params.append('line_items[0][price_data][unit_amount]','100');
   params.append('line_items[0][price_data][product_data][name]','SATKEN annual subscription — ' + orgName);
   params.append('metadata[org_id]', orgId);
 

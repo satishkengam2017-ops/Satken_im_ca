@@ -1,8 +1,8 @@
 // Plain Node script (no test framework) verifying the signature-checking
-// logic in stripe-webhook.js. Run with: node netlify/functions/stripe-webhook.test.js
+// logic in stripe-webhook.js. Run with: node tests/stripe-webhook.test.js
 var assert = require('assert');
 var crypto = require('crypto');
-var { verifyStripeSignature } = require('./stripe-webhook.js');
+var { verifyStripeSignature } = require('../netlify/functions/stripe-webhook.js');
 
 var secret = 'whsec_test_secret';
 var rawBody = JSON.stringify({hello:'world'});
