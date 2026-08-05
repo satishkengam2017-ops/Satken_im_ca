@@ -147,12 +147,19 @@ begin
     raise exception 'refusing to replace the catalogue with an empty file';
   end if;
 
-  -- Checked before any cast: a non-numeric value would otherwise raise a raw
+  -- Checked before any cast: a malformed value would otherwise raise a raw
   -- "invalid input syntax for type numeric" before the friendly checks below.
+  -- Values are trimmed first so whitespace-padded numbers from a spreadsheet
+  -- export (" 19.99 ") stay valid, matching what ::numeric itself accepts.
+  -- Empty and absent values deliberately pass this check: they are caught by
+  -- the counted per-row validation below, which reports them accurately as
+  -- missing rather than as malformed.
   if exists (
     select 1 from jsonb_array_elements(p_rows) r
-    where coalesce(r->>'mrp','') !~ '^-?[0-9]+(\.[0-9]+)?$'
-       or coalesce(r->>'sale_price','') !~ '^-?[0-9]+(\.[0-9]+)?$'
+    where (btrim(coalesce(r->>'mrp','')) <> ''
+           and btrim(r->>'mrp') !~ '^-?([0-9]+(\.[0-9]*)?|\.[0-9]+)$')
+       or (btrim(coalesce(r->>'sale_price','')) <> ''
+           and btrim(r->>'sale_price') !~ '^-?([0-9]+(\.[0-9]*)?|\.[0-9]+)$')
   ) then
     raise exception 'import rejected: one or more rows have a non-numeric MRP or Sale Price';
   end if;
@@ -163,8 +170,8 @@ begin
     select
       upper(trim(r->>'barcode'))  as barcode,
       trim(r->>'item_name')       as item_name,
-      (r->>'mrp')::numeric        as mrp,
-      (r->>'sale_price')::numeric as sale_price
+      nullif(btrim(r->>'mrp'),'')::numeric        as mrp,
+      nullif(btrim(r->>'sale_price'),'')::numeric as sale_price
     from jsonb_array_elements(p_rows) r
   ) x
   where x.barcode is null or x.barcode = ''
@@ -201,8 +208,8 @@ begin
       upper(trim(r->>'barcode'))                    as barcode,
       trim(r->>'item_name')                         as item_name,
       nullif(trim(coalesce(r->>'item_code','')),'') as item_code,
-      (r->>'mrp')::numeric                          as mrp,
-      (r->>'sale_price')::numeric                   as sale_price
+      nullif(btrim(r->>'mrp'),'')::numeric          as mrp,
+      nullif(btrim(r->>'sale_price'),'')::numeric   as sale_price
     from jsonb_array_elements(p_rows) r
   ),
   upserted as (
