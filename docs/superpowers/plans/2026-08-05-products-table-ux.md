@@ -392,6 +392,8 @@ git -c user.name="satishkumarkengam-cpu" -c user.email="kengam4s@gmail.com" comm
 
 - [ ] **Step 1: Add sort and selection state to productsState**
 
+`productsState` is assigned in two places — its declaration and the logout reset inside `applyFeaturePermissions`. Rather than repeat the object literal in both (which would drift the moment a field is added), introduce a factory and call it from both.
+
 Find:
 ```javascript
 var productsState={page:0, search:'', filter:'all', total:0, rows:[]};
@@ -399,7 +401,14 @@ var productSearchTimer=null;
 ```
 and replace with:
 ```javascript
-var productsState={page:0, search:'', filter:'all', total:0, rows:[], sort:{col:'item_name', asc:true}};
+/* Single source of truth for the list's initial state. Assigned both at load
+   and on logout, so a literal repeated in two places would drift as soon as a
+   field is added. */
+function defaultProductsState(){
+  return {page:0, search:'', filter:'all', total:0, rows:[], sort:{col:'item_name', asc:true}};
+}
+
+var productsState=defaultProductsState();
 var productSearchTimer=null;
 
 /* Selection is scoped to the currently visible page and cleared whenever the
@@ -409,15 +418,17 @@ var productSearchTimer=null;
 var productsSelected={};
 ```
 
-Note there is a second place `productsState` is assigned — inside `applyFeaturePermissions`, which resets it on logout. Update that too. Find:
+Then update the logout reset. Find:
 ```javascript
     productsState={page:0, search:'', filter:'all', total:0, rows:[]};
 ```
 and replace with:
 ```javascript
-    productsState={page:0, search:'', filter:'all', total:0, rows:[], sort:{col:'item_name', asc:true}};
+    productsState=defaultProductsState();
     productsSelected={};
 ```
+
+`defaultProductsState` is declared lower in the file than `applyFeaturePermissions` uses it. That is fine — function declarations hoist, and this only runs after login. Do not reorder the file.
 
 - [ ] **Step 2: Apply sorting in the query**
 
