@@ -100,6 +100,10 @@ var PRODUCTS_PAGE_SIZE=100;
 var HIGH_DISCOUNT_PCT=25;
 var RECENT_DAYS=30;
 
+// Incremented per request so a slow earlier response cannot overwrite a newer
+// render. The debounce only spaces out request starts, not completions.
+var productsRequestSeq=0;
+
 var productsState={page:0, search:'', filter:'all', total:0, rows:[]};
 var productSearchTimer=null;
 
@@ -110,7 +114,7 @@ function buildProductsQuery(){
   if(term){
     // PostgREST's or() filter is comma/parenthesis delimited, so strip those
     // characters rather than letting them corrupt the filter expression.
-    var safe=term.replace(/[%,()]/g,' ').trim();
+    var safe=term.replace(/[%*,()]/g,' ').trim();
     if(safe){
       q=q.or('barcode.ilike.%'+safe+'%,item_name.ilike.%'+safe+'%,item_code.ilike.%'+safe+'%');
     }
@@ -134,12 +138,15 @@ async function loadProducts(){
   var pager=document.getElementById('pm-pager');
   if(!tbody)return;
 
+  var seq=++productsRequestSeq;
+
   summary.textContent='Loading…';
   tbody.innerHTML='';
   empty.style.display='none';
   pager.style.display='none';
 
   var res=await buildProductsQuery();
+  if(seq!==productsRequestSeq)return; // superseded by a newer request
   if(res.error){
     summary.textContent='';
     empty.style.display='';
@@ -152,6 +159,15 @@ async function loadProducts(){
   // to round-trip HTML-escaped text back out of an onclick attribute.
   productsState.rows=rows;
   productsState.total=res.count||0;
+
+  // If rows were deleted while we were on a later page, the current page can
+  // fall outside the result set. Clamp and refetch rather than rendering an
+  // empty table with an impossible "Showing 201-150 of 150" summary.
+  var lastPage=Math.max(0, Math.ceil(productsState.total/PRODUCTS_PAGE_SIZE)-1);
+  if(productsState.total>0&&productsState.page>lastPage){
+    productsState.page=lastPage;
+    return loadProducts();
+  }
 
   if(!productsState.total){
     summary.textContent='';
@@ -177,7 +193,7 @@ async function loadProducts(){
   }
 }
 
-function renderProductRow(p){
+function renderProductRow(p, i){
   var admin=isProductAdmin();
   var zero=!Number(p.discount_pct);
   var updated=p.updated_at?new Date(p.updated_at).toLocaleDateString():'—';
@@ -191,10 +207,24 @@ function renderProductRow(p){
     '<td>'+formatMoney(p.savings_amount)+'</td>'+
     '<td>'+escapeHtml(updated)+'</td>'+
     '<td>'+(admin
-      ? '<button class="pm-act" onclick="openProductModal(\''+escapeHtml(p.id)+'\')">Edit</button>'+
-        '<button class="pm-act danger" onclick="deleteProduct(\''+escapeHtml(p.id)+'\')">Delete</button>'
+      ? '<button class="pm-act" onclick="editProductAt('+i+')">Edit</button>'+
+        '<button class="pm-act danger" onclick="deleteProductAt('+i+')">Delete</button>'
       : '—')+'</td>'+
   '</tr>';
+}
+
+/* Row actions are dispatched by array index rather than by interpolating an id
+   into an onclick attribute. HTML entities decode before the attribute is
+   compiled as JavaScript, so escaping alone would not protect that string
+   boundary; an integer index cannot carry a payload at all. */
+function editProductAt(i){
+  var p=productsState.rows[i];
+  if(p)openProductModal(p.id);
+}
+
+function deleteProductAt(i){
+  var p=productsState.rows[i];
+  if(p)deleteProduct(p.id);
 }
 
 function onProductSearchInput(){
