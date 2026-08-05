@@ -50,6 +50,133 @@ function buildCustomerPayload(p){
   };
 }
 
+/* ── LOOKUP ── */
+
+var psCurrentProduct=null;
+var psLookupSeq=0;
+
+async function lookupProductByBarcode(raw){
+  var check=classifyBarcode(raw);
+  if(check.status!=='ok')return check;
+
+  var res=await sb.from('products').select('*')
+    .eq('org_id',currentOrgId).eq('barcode',check.barcode).maybeSingle();
+
+  if(res.error)return {status:'error', barcode:check.barcode, message:res.error.message};
+  if(!res.data)return {status:'notfound', barcode:check.barcode};
+  return {status:'found', barcode:check.barcode, product:res.data};
+}
+
+async function runLookup(raw){
+  var seq=++psLookupSeq;
+  var statusEl=document.getElementById('ps-status');
+  var resultEl=document.getElementById('ps-result');
+  resultEl.innerHTML='<div class="ps-card">Looking up…</div>';
+
+  var result=await lookupProductByBarcode(raw);
+  if(seq!==psLookupSeq)return; // a newer scan superseded this lookup
+
+  if(statusEl)statusEl.textContent=(result.status==='found')
+    ? 'Found: '+result.product.item_name
+    : 'Tap Start to scan';
+  renderScanResult(result);
+}
+
+function submitManualBarcode(){
+  var el=document.getElementById('ps-manual-barcode');
+  runLookup(el.value);
+}
+
+function scanAnother(){
+  psCurrentProduct=null;
+  document.getElementById('ps-result').innerHTML='';
+  var el=document.getElementById('ps-manual-barcode');
+  if(el)el.value='';
+  var statusEl=document.getElementById('ps-status');
+  if(statusEl)statusEl.textContent='Tap Start to scan';
+}
+
+function focusManualBarcode(){
+  var el=document.getElementById('ps-manual-barcode');
+  if(el){ el.value=''; el.focus(); }
+}
+
+/* ── RENDER ── */
+
+function renderScanResult(result){
+  var el=document.getElementById('ps-result');
+  psCurrentProduct=null;
+
+  if(result.status==='empty'){
+    el.innerHTML='<div class="ps-card"><div class="ps-error">Enter or scan a barcode first.</div></div>';
+    return;
+  }
+
+  if(result.status==='invalid'){
+    el.innerHTML='<div class="ps-card"><div class="ps-error">That barcode contains characters we don\'t recognise. Letters, numbers, "-", "." and spaces only.</div></div>';
+    return;
+  }
+
+  if(result.status==='error'){
+    el.innerHTML='<div class="ps-card"><div class="ps-error">Could not look that up: '+escapeHtml(result.message||'unknown error')+'</div></div>';
+    return;
+  }
+
+  if(result.status==='notfound'){
+    el.innerHTML='<div class="ps-card notfound">'+
+      '<div class="ps-notfound-title">Product Not Found</div>'+
+      '<div class="ps-meta">Barcode: '+escapeHtml(result.barcode)+'</div>'+
+      '<div class="ps-actions" style="margin-top:14px">'+
+        '<button class="btn btn-gold" onclick="scanAnother()">Scan Again</button>'+
+        '<button class="btn btn-outline" onclick="focusManualBarcode()">Enter Barcode</button>'+
+        (isProductAdmin()
+          ? '<button class="btn btn-outline" onclick="addProductForScannedBarcode()">Add Product</button>'
+          : '')+
+      '</div>'+
+    '</div>';
+    return;
+  }
+
+  var p=result.product;
+  psCurrentProduct=p;
+
+  // Discount and savings come from the database's generated columns. If either
+  // is absent we omit that line rather than computing a substitute — an
+  // invented discount would be worse than none.
+  var hasOffer=Number(p.discount_pct)>0;
+
+  el.innerHTML='<div class="ps-card">'+
+    '<div class="ps-name">'+escapeHtml(p.item_name)+'</div>'+
+    (p.item_code?'<div class="ps-meta">Item Code: '+escapeHtml(p.item_code)+'</div>':'')+
+    '<div class="ps-meta">Barcode: '+escapeHtml(p.barcode)+'</div>'+
+    '<div class="ps-prices">'+
+      '<span class="ps-mrp">MRP '+formatMoney(p.mrp)+'</span>'+
+      '<span class="ps-sale">'+formatMoney(p.sale_price)+'</span>'+
+    '</div>'+
+    (hasOffer
+      ? '<div class="ps-offer">'+
+          '<span class="ps-discount">'+formatDiscount(p.discount_pct)+' OFF</span>'+
+          '<span class="ps-savings">You Save '+formatMoney(p.savings_amount)+'</span>'+
+        '</div>'
+      : '')+
+    '<div class="ps-actions">'+
+      '<button class="btn btn-gold" onclick="showCustomer()">Show Customer</button>'+
+      '<button class="btn btn-outline" onclick="scanAnother()">Scan Another</button>'+
+    '</div>'+
+  '</div>';
+}
+
+function addProductForScannedBarcode(){
+  var barcode=normalizeBarcode(document.getElementById('ps-manual-barcode').value);
+  if(!barcode){
+    // Came from a camera scan rather than the manual field — recover it from
+    // the rendered not-found card.
+    var meta=document.querySelector('#ps-result .ps-meta');
+    if(meta)barcode=normalizeBarcode(meta.textContent.replace(/^Barcode:\s*/,''));
+  }
+  openProductModal(null, barcode);
+}
+
 /* Node export shim — inert in the browser. Later tasks append code ABOVE
    this block; it must stay last in the file. */
 if(typeof module!=='undefined'&&module.exports){
