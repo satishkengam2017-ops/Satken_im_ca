@@ -380,7 +380,7 @@
   .pm-calc b { color:var(--gold); }
   .pm-error { color:var(--red); font-size:16px; margin-bottom:10px; display:none; }
 
-  /* Five tabs no longer fit a narrow phone at the base type size. */
+  /* The extra tab no longer fits a narrow phone at the base type size. */
   @media (max-width:480px){
     .tab-btn { font-size:12px; letter-spacing:0.3px; padding:12px 4px; }
   }
@@ -722,6 +722,44 @@
           <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
           Yes, Clear
         </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="pm-modal" onclick="closeProductModal(event)">
+    <div class="modal">
+      <h3 id="pm-modal-title">Add Product</h3>
+      <div class="pm-error" id="pm-modal-error"></div>
+
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-barcode">Barcode</label>
+        <input class="manual-input" id="pm-f-barcode" type="text" style="width:100%" placeholder="8901234567890">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-name">Item Name</label>
+        <input class="manual-input" id="pm-f-name" type="text" style="width:100%" placeholder="Premium Coffee 500g">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-code">Item Code <span style="opacity:0.7">(optional)</span></label>
+        <input class="manual-input" id="pm-f-code" type="text" style="width:100%" placeholder="COF-500">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-mrp">MRP</label>
+        <input class="manual-input" id="pm-f-mrp" type="number" inputmode="decimal" min="0" step="0.01" style="width:100%" placeholder="19.99" oninput="onProductPriceInput()">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-sale">Sale Price</label>
+        <input class="manual-input" id="pm-f-sale" type="number" inputmode="decimal" min="0" step="0.01" style="width:100%" placeholder="14.99" oninput="onProductPriceInput()">
+      </div>
+
+      <div class="pm-calc">
+        <span>Discount: <b id="pm-calc-discount">—</b></span>
+        <span>Savings: <b id="pm-calc-savings">—</b></span>
+      </div>
+
+      <div class="modal-btns">
+        <button class="btn btn-outline" onclick="closeProductModal()">Cancel</button>
+        <button class="btn btn-gold" id="pm-save-btn" onclick="saveProduct()">Save Product</button>
       </div>
     </div>
   </div>

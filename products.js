@@ -228,6 +228,124 @@ function productsNextPage(){
   loadProducts();
 }
 
+/* ── ADD / EDIT / DELETE ── */
+
+var editingProductId=null;
+
+function openProductModal(id, prefillBarcode){
+  if(!isProductAdmin()){ alert('Only the store owner can add or edit products.'); return; }
+
+  editingProductId=id||null;
+  document.getElementById('pm-modal-title').textContent=editingProductId?'Edit Product':'Add Product';
+  showProductModalError('');
+
+  var bc=document.getElementById('pm-f-barcode');
+  var nm=document.getElementById('pm-f-name');
+  var cd=document.getElementById('pm-f-code');
+  var mp=document.getElementById('pm-f-mrp');
+  var sp=document.getElementById('pm-f-sale');
+
+  bc.value=prefillBarcode||''; nm.value=''; cd.value=''; mp.value=''; sp.value='';
+  onProductPriceInput();
+  document.getElementById('pm-modal').classList.add('open');
+
+  if(editingProductId){
+    sb.from('products').select('*').eq('id',editingProductId).eq('org_id',currentOrgId).single()
+      .then(function(res){
+        if(res.error||!res.data){ showProductModalError('Could not load this product: '+(res.error?res.error.message:'not found')); return; }
+        bc.value=res.data.barcode||'';
+        nm.value=res.data.item_name||'';
+        cd.value=res.data.item_code||'';
+        mp.value=res.data.mrp;
+        sp.value=res.data.sale_price;
+        onProductPriceInput();
+      });
+  } else {
+    bc.focus();
+  }
+}
+
+function closeProductModal(e){
+  if(e&&e.target!==document.getElementById('pm-modal'))return;
+  document.getElementById('pm-modal').classList.remove('open');
+  editingProductId=null;
+}
+
+function showProductModalError(msg){
+  var el=document.getElementById('pm-modal-error');
+  el.textContent=msg||'';
+  el.style.display=msg?'block':'none';
+}
+
+function onProductPriceInput(){
+  var mrp=document.getElementById('pm-f-mrp').value;
+  var sale=document.getElementById('pm-f-sale').value;
+  var pct=computeDiscountPct(mrp,sale);
+  var save=computeSavings(mrp,sale);
+  // Never show a fabricated discount: if the pair is invalid, show nothing.
+  var valid=(pct!==null&&save!==null&&save>=0);
+  document.getElementById('pm-calc-discount').textContent=valid?formatDiscount(pct):'—';
+  document.getElementById('pm-calc-savings').textContent=valid?formatMoney(save):'—';
+}
+
+async function saveProduct(){
+  var input={
+    barcode:document.getElementById('pm-f-barcode').value,
+    itemName:document.getElementById('pm-f-name').value,
+    itemCode:document.getElementById('pm-f-code').value,
+    mrp:document.getElementById('pm-f-mrp').value,
+    salePrice:document.getElementById('pm-f-sale').value
+  };
+
+  var check=validateProductInput(input);
+  if(!check.valid){ showProductModalError(check.errors.join(' ')); return; }
+
+  var btn=document.getElementById('pm-save-btn');
+  btn.disabled=true;
+  showProductModalError('');
+
+  var record={
+    org_id:currentOrgId,
+    barcode:String(input.barcode).trim().toUpperCase(),
+    item_name:String(input.itemName).trim(),
+    item_code:String(input.itemCode||'').trim()||null,
+    mrp:Number(input.mrp),
+    sale_price:Number(input.salePrice)
+  };
+
+  var res=editingProductId
+    ? await sb.from('products').update(record).eq('id',editingProductId).eq('org_id',currentOrgId)
+    : await sb.from('products').insert(record);
+
+  btn.disabled=false;
+
+  if(res.error){
+    var msg=res.error.message||'Unknown error.';
+    if(/products_org_barcode_key/.test(msg))msg='A product with that barcode already exists. Edit that product instead.';
+    else if(/products_sale_le_mrp/.test(msg))msg='Sale Price cannot be greater than MRP.';
+    else if(/products_mrp_positive/.test(msg))msg='MRP must be greater than 0.';
+    else if(/row-level security/i.test(msg))msg='Only the store owner can add or edit products.';
+    showProductModalError(msg);
+    return;
+  }
+
+  document.getElementById('pm-modal').classList.remove('open');
+  editingProductId=null;
+  loadProducts();
+}
+
+async function deleteProduct(id){
+  if(!isProductAdmin()){ alert('Only the store owner can delete products.'); return; }
+
+  var match=(productsState.rows||[]).filter(function(r){return r.id===id;})[0];
+  var name=match?match.item_name:'this product';
+  if(!confirm('Delete "'+name+'"? This cannot be undone.'))return;
+
+  var res=await sb.from('products').delete().eq('id',id).eq('org_id',currentOrgId);
+  if(res.error){ alert('Could not delete: '+res.error.message); return; }
+  loadProducts();
+}
+
 /* Node export shim — inert in the browser, where `module` is undefined. */
 if(typeof module!=='undefined'&&module.exports){
   module.exports={
