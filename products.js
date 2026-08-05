@@ -14,6 +14,9 @@ var CURRENCY_SYMBOL='$';
 // depending on app.js script order.
 var PRODUCT_BARCODE_RE=/^[A-Za-z0-9\-\.\ ]+$/;
 
+// Mirrors numeric(12,2) in migration_step4.sql: values at or above 10^10 overflow.
+var MAX_PRICE=1e10;
+
 /* ── PRICE MATHS ──
    MRP and Sale Price are the only sources of truth. These mirror the
    generated columns in migration_step4.sql, so client and server agree. */
@@ -65,14 +68,18 @@ function validateProductInput(input){
   var mrp=Number(mrpRaw), sale=Number(saleRaw);
   var mrpOk=false, saleOk=false;
 
+  // MAX_PRICE mirrors the database's numeric(12,2), which rejects values at or
+  // above 10^10. Without this the user sees a raw Postgres overflow message.
   if(mrpRaw==='')errors.push('MRP is required.');
   else if(!isFinite(mrp))errors.push('MRP must be a number.');
   else if(mrp<=0)errors.push('MRP must be greater than 0.');
+  else if(mrp>=MAX_PRICE)errors.push('MRP is too large.');
   else mrpOk=true;
 
   if(saleRaw==='')errors.push('Sale Price is required.');
   else if(!isFinite(sale))errors.push('Sale Price must be a number.');
   else if(sale<0)errors.push('Sale Price cannot be negative.');
+  else if(sale>=MAX_PRICE)errors.push('Sale Price is too large.');
   else saleOk=true;
 
   if(mrpOk&&saleOk&&sale>mrp)errors.push('Sale Price cannot be greater than MRP.');
@@ -91,7 +98,21 @@ function isProductAdmin(){
 
 function applyFeaturePermissions(){
   var btn=document.getElementById('tab-btn-products');
-  if(btn)btn.style.display=isProductAdmin()?'':'none';
+  var admin=isProductAdmin();
+  if(btn)btn.style.display=admin?'':'none';
+
+  // Hiding the button is not enough: an already-open Products panel survives a
+  // logout, so the next user to sign in on a shared device would land on the
+  // previous account's catalogue. Clear the rendered data and leave the tab.
+  if(!admin){
+    productsState={page:0, search:'', filter:'all', total:0, rows:[]};
+    var tb=document.getElementById('pm-tbody');
+    if(tb)tb.innerHTML='';
+    var search=document.getElementById('pm-search');
+    if(search)search.value='';
+    var panel=document.getElementById('tab-products');
+    if(panel&&panel.classList.contains('active')&&typeof switchTab==='function')switchTab('scan');
+  }
 }
 
 /* ── PRODUCT LIST ── */
@@ -344,6 +365,7 @@ async function saveProduct(){
   var check=validateProductInput(input);
   if(!check.valid){ showProductModalError(check.errors.join(' ')); return; }
 
+  var seq=productModalSeq;
   var btn=document.getElementById('pm-save-btn');
   btn.disabled=true;
   showProductModalError('');
@@ -357,10 +379,13 @@ async function saveProduct(){
     sale_price:Number(input.salePrice)
   };
 
+  // .select() so a zero-row result is detectable: PostgREST reports no error
+  // when an RLS USING clause filters every candidate row out.
   var res=editingProductId
-    ? await sb.from('products').update(record).eq('id',editingProductId).eq('org_id',currentOrgId)
-    : await sb.from('products').insert(record);
+    ? await sb.from('products').update(record).eq('id',editingProductId).eq('org_id',currentOrgId).select('id')
+    : await sb.from('products').insert(record).select('id');
 
+  if(seq!==productModalSeq)return; // modal was closed or reopened while saving
   btn.disabled=false;
 
   if(res.error){
@@ -374,7 +399,24 @@ async function saveProduct(){
     return;
   }
 
+  if(!res.data||!res.data.length){
+    showProductModalError('This product could not be saved. It may have been deleted, or your subscription may no longer be active.');
+    return;
+  }
+
   document.getElementById('pm-modal').classList.remove('open');
+  // A newly inserted row may not match the active filter or fall on the current
+  // page; reset to an unfiltered first page so the user can see what they added.
+  if(!editingProductId){
+    productsState.page=0;
+    productsState.filter='all';
+    productsState.search='';
+    var searchEl=document.getElementById('pm-search');
+    if(searchEl)searchEl.value='';
+    document.querySelectorAll('#pm-filter-chips .pm-chip').forEach(function(el){
+      el.classList.toggle('active', el.getAttribute('data-filter')==='all');
+    });
+  }
   editingProductId=null;
   loadProducts();
 }
@@ -386,8 +428,13 @@ async function deleteProduct(id){
   var name=match?match.item_name:'this product';
   if(!confirm('Delete "'+name+'"? This cannot be undone.'))return;
 
-  var res=await sb.from('products').delete().eq('id',id).eq('org_id',currentOrgId);
+  var res=await sb.from('products').delete().eq('id',id).eq('org_id',currentOrgId).select('id');
   if(res.error){ alert('Could not delete: '+res.error.message); return; }
+  if(!res.data||!res.data.length){
+    alert('This product could not be deleted. It may already have been removed, or your subscription may no longer be active.');
+    loadProducts();
+    return;
+  }
   loadProducts();
 }
 

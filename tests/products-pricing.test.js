@@ -68,4 +68,14 @@ assert.strictEqual(missingPrices.errors.length, 2, 'reports both missing MRP and
 var noItemCode = validateProductInput({barcode:'123456', itemName:'X', itemCode:'', mrp:'10', salePrice:'8'});
 assert.strictEqual(noItemCode.valid, true, 'item code is optional');
 
+var hugeMrp = validateProductInput({barcode:'123456', itemName:'X', mrp:'10000000000', salePrice:'5'});
+assert.strictEqual(hugeMrp.valid, false, 'MRP at 1e10 overflows numeric(12,2) and is invalid');
+assert.ok(hugeMrp.errors.some(function(e){return /MRP is too large/.test(e);}), 'reports oversized MRP');
+
+var hugeSale = validateProductInput({barcode:'123456', itemName:'X', mrp:'9999999999', salePrice:'10000000000'});
+assert.strictEqual(hugeSale.valid, false, 'Sale Price at 1e10 overflows numeric(12,2) and is invalid');
+
+var maxOk = validateProductInput({barcode:'123456', itemName:'X', mrp:'9999999999.99', salePrice:'100'});
+assert.strictEqual(maxOk.valid, true, 'the largest value numeric(12,2) accepts is still valid');
+
 console.log('products pricing tests passed');

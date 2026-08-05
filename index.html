@@ -379,6 +379,11 @@
   .pm-calc { display:flex; gap:16px; padding:10px 12px; border-radius:10px; background:rgba(139,94,52,0.08); margin:4px 0 14px; font-size:16px; }
   .pm-calc b { color:var(--gold); }
   .pm-error { color:var(--red); font-size:16px; margin-bottom:10px; display:none; }
+  /* The shared .modal is sized for a two-line confirm dialog. The product form
+     is far taller, and .modal-bg is a fixed flex-end container with no scroll,
+     so without this the top of the form (including validation errors) is
+     clipped off-screen and unreachable on a small phone. */
+  #pm-modal .modal { max-height:90dvh; overflow-y:auto; }
 
   /* The extra tab no longer fits a narrow phone at the base type size. */
   @media (max-width:480px){
