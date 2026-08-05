@@ -876,10 +876,22 @@ Expected: only `index.html`, `pricescan.js`, `customer.html`, `tests/pricescan.t
 
 - [ ] **Step 2: Confirm this phase writes no stock data**
 
+A plain `grep` over these files gives a false positive, because their own comments name the forbidden identifiers while explaining why they are never used. Strip comments first so the assertion tests code:
+
 ```bash
-grep -n 'increment_scan\|inventory_items\|unmatched_scans' pricescan.js customer.html || echo "CLEAN: lookup only"
+node -e '
+var fs=require("fs");
+["pricescan.js","customer.html"].forEach(function(f){
+  var src=fs.readFileSync(f,"utf8");
+  var code=src.replace(/\/\*[\s\S]*?\*\//g,"").replace(/<!--[\s\S]*?-->/g,"").replace(/^\s*\/\/.*$/gm,"");
+  ["increment_scan","inventory_items","unmatched_scans"].forEach(function(t){
+    if(code.indexOf(t)>=0)console.log("PROBLEM "+f+" references "+t);
+  });
+});
+console.log("CLEAN: no stock-table writes in either file");
+'
 ```
-Expected: `CLEAN: lookup only`
+Expected: only `CLEAN: no stock-table writes in either file`, with no `PROBLEM` lines above it.
 
 - [ ] **Step 3: Run all three suites and syntax-check**
 
