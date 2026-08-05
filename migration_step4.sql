@@ -22,11 +22,13 @@ create table products (
   -- Derived, never authored. GENERATED ... STORED means no client can write
   -- these, so they cannot drift from MRP/Sale Price by any code path.
   savings_amount numeric(12,2) generated always as (mrp - sale_price) stored,
-  discount_pct   numeric(5,2)  generated always as (round(((mrp - sale_price) / mrp) * 100, 2)) stored,
+  discount_pct   numeric(5,2)  generated always as (round(((mrp - sale_price) / nullif(mrp, 0)) * 100, 2)) stored,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
   constraint products_org_barcode_key   unique (org_id, barcode),
-  -- mrp > 0 also guarantees the discount_pct expression never divides by zero.
+  -- Stored generated columns are computed BEFORE check constraints run, so the
+  -- nullif(mrp,0) above is what prevents a raw division-by-zero error; this
+  -- constraint is what actually rejects the row.
   constraint products_mrp_positive      check (mrp > 0),
   constraint products_sale_price_nonneg check (sale_price >= 0),
   constraint products_sale_le_mrp       check (sale_price <= mrp)
@@ -49,6 +51,24 @@ $$;
 create trigger products_set_updated_at
   before update on products
   for each row execute function set_products_updated_at();
+
+-- Normalizes on every write path (RPC, direct insert, direct update) so the
+-- unique (org_id, barcode) constraint cannot be defeated by case or whitespace.
+create or replace function normalize_product_row()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.barcode   = upper(trim(new.barcode));
+  new.item_name = trim(new.item_name);
+  new.item_code = nullif(trim(coalesce(new.item_code,'')),'');
+  return new;
+end;
+$$;
+
+create trigger products_normalize
+  before insert or update on products
+  for each row execute function normalize_product_row();
 
 -- ── 4c. Row-level security ──
 -- Read: any member of the org. Write: owners only. Both gated on billing,
@@ -111,12 +131,30 @@ begin
     raise exception 'only the store owner can import products';
   end if;
 
+  if not org_is_active(p_org_id) then
+    raise exception 'subscription is not active for this store';
+  end if;
+
   if p_mode not in ('upsert','replace') then
     raise exception 'invalid import mode: %', p_mode;
   end if;
 
   if jsonb_typeof(p_rows) <> 'array' then
     raise exception 'rows payload must be a JSON array';
+  end if;
+
+  if p_mode = 'replace' and jsonb_array_length(p_rows) = 0 then
+    raise exception 'refusing to replace the catalogue with an empty file';
+  end if;
+
+  -- Checked before any cast: a non-numeric value would otherwise raise a raw
+  -- "invalid input syntax for type numeric" before the friendly checks below.
+  if exists (
+    select 1 from jsonb_array_elements(p_rows) r
+    where coalesce(r->>'mrp','') !~ '^-?[0-9]+(\.[0-9]+)?$'
+       or coalesce(r->>'sale_price','') !~ '^-?[0-9]+(\.[0-9]+)?$'
+  ) then
+    raise exception 'import rejected: one or more rows have a non-numeric MRP or Sale Price';
   end if;
 
   -- Server-side revalidation. The client validates first and shows a friendly
@@ -176,6 +214,9 @@ begin
           item_code  = excluded.item_code,
           mrp        = excluded.mrp,
           sale_price = excluded.sale_price
+    -- xmax = 0 distinguishes a fresh insert from an ON CONFLICT update. This is
+    -- the standard idiom but relies on an internal detail; re-verify it on a
+    -- future major-version upgrade.
     returning (xmax = 0) as was_insert
   )
   select
