@@ -352,6 +352,43 @@
   .password-field .manual-input { margin-bottom:0;padding-right:40px; }
   .password-eye { position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:6px;display:flex;align-items:center;justify-content:center;color:var(--muted); }
   .password-eye svg { width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8; }
+
+  /* ── PRODUCT MANAGEMENT (add-on module) ── */
+  .pm-search { width:100%; margin-bottom:10px; }
+  .pm-filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .pm-chip { font-family:'Cormorant Garamond',serif; font-size:15px; font-weight:600; padding:5px 12px; border-radius:20px; cursor:pointer; white-space:nowrap; background:rgba(139,94,52,0.08); color:var(--gold); border:1px solid var(--input-border); }
+  .pm-chip.active { background:var(--gold); color:#FFF8E7; border-color:var(--gold); }
+  .pm-summary { font-size:16px; color:var(--muted); margin-bottom:10px; }
+  .pm-table-wrap { overflow-x:auto; border:1px solid var(--border-soft); border-radius:12px; background:var(--surface); margin-bottom:12px; }
+  .pm-table { width:100%; border-collapse:collapse; font-size:15px; }
+  .pm-table th { text-align:left; white-space:nowrap; padding:10px 12px; font-family:'Cinzel',serif; font-size:12px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border-soft); }
+  .pm-table td { padding:10px 12px; border-bottom:1px solid var(--border-soft); color:var(--text); white-space:nowrap; }
+  .pm-table tr:last-child td { border-bottom:none; }
+  .pm-mono { font-family:'JetBrains Mono',monospace; font-size:14px; }
+  .pm-strike { color:var(--dim); text-decoration:line-through; }
+  .pm-sale { font-weight:700; color:var(--gold); }
+  .pm-badge { display:inline-block; font-size:13px; font-weight:700; padding:2px 8px; border-radius:20px; background:var(--green-light); color:var(--green); }
+  .pm-badge.zero { background:rgba(0,0,0,0.06); color:var(--dim); }
+  .pm-act { background:none; border:none; cursor:pointer; color:var(--gold); font-family:'Cormorant Garamond',serif; font-size:15px; font-weight:600; text-decoration:underline; padding:0 6px; }
+  .pm-act.danger { color:var(--red); }
+  .pm-empty { padding:32px 20px; text-align:center; color:var(--muted); font-size:18px; border:1px dashed var(--border); border-radius:12px; margin-bottom:12px; }
+  .pm-pager { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:20px; }
+  .pm-pageinfo { font-size:16px; color:var(--muted); }
+  .pm-form-row { margin-bottom:10px; }
+  .pm-label { display:block; font-size:15px; color:var(--muted); margin-bottom:4px; }
+  .pm-calc { display:flex; gap:16px; padding:10px 12px; border-radius:10px; background:rgba(139,94,52,0.08); margin:4px 0 14px; font-size:16px; }
+  .pm-calc b { color:var(--gold); }
+  .pm-error { color:var(--red); font-size:16px; margin-bottom:10px; display:none; }
+  /* The shared .modal is sized for a two-line confirm dialog. The product form
+     is far taller, and .modal-bg is a fixed flex-end container with no scroll,
+     so without this the top of the form (including validation errors) is
+     clipped off-screen and unreachable on a small phone. */
+  #pm-modal .modal { max-height:90dvh; overflow-y:auto; }
+
+  /* The extra tab no longer fits a narrow phone at the base type size. */
+  @media (max-width:480px){
+    .tab-btn { font-size:12px; letter-spacing:0.3px; padding:12px 4px; }
+  }
 </style>
 </head>
 <body>
@@ -492,6 +529,7 @@
     <button class="tab-btn active" data-tab="scan" onclick="switchTab('scan')">Scan</button>
     <button class="tab-btn" data-tab="inventory" onclick="switchTab('inventory')">Inventory</button>
     <button class="tab-btn" data-tab="unmatched" onclick="switchTab('unmatched')">Report <span class="tab-badge" id="unmatched-badge" style="display:none">0</span></button>
+    <button class="tab-btn" data-tab="products" id="tab-btn-products" style="display:none" onclick="switchTab('products'); loadProducts()">Products</button>
   </div>
 
   <main>
@@ -631,6 +669,52 @@
       </div>
     </div>
 
+    <!-- ══════════ PRODUCTS TAB ══════════ -->
+    <div class="tab-panel" id="tab-products">
+      <div class="section-header">
+        <h2>Product Catalogue</h2>
+        <button class="refresh-btn" onclick="openProductModal()">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Product
+        </button>
+      </div>
+
+      <input class="manual-input pm-search" id="pm-search" type="text"
+             placeholder="Search barcode, item name or item code"
+             oninput="onProductSearchInput()">
+
+      <div class="pm-filters" id="pm-filter-chips">
+        <button class="pm-chip active" data-filter="all" onclick="setProductFilter('all')">All</button>
+        <button class="pm-chip" data-filter="onsale" onclick="setProductFilter('onsale')">On Sale</button>
+        <button class="pm-chip" data-filter="nodiscount" onclick="setProductFilter('nodiscount')">No Discount</button>
+        <button class="pm-chip" data-filter="high" onclick="setProductFilter('high')">High Discount</button>
+        <button class="pm-chip" data-filter="recent" onclick="setProductFilter('recent')">Recently Updated</button>
+      </div>
+
+      <div class="pm-summary" id="pm-summary">Open this tab to load your products</div>
+
+      <div class="pm-table-wrap">
+        <table class="pm-table">
+          <thead>
+            <tr>
+              <th>Barcode</th><th>Item Name</th><th>Item Code</th>
+              <th>MRP</th><th>Sale Price</th><th>Discount</th><th>Savings</th>
+              <th>Last Updated</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pm-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="pm-empty" id="pm-empty" style="display:none"></div>
+
+      <div class="pm-pager" id="pm-pager" style="display:none">
+        <button class="btn btn-outline" id="pm-prev" onclick="productsPrevPage()">Previous</button>
+        <span class="pm-pageinfo" id="pm-pageinfo"></span>
+        <button class="btn btn-outline" id="pm-next" onclick="productsNextPage()">Next</button>
+      </div>
+    </div>
+
   </main>
 
   <div class="modal-bg" id="reset-modal" onclick="closeResetModal(event)">
@@ -647,6 +731,44 @@
     </div>
   </div>
 
+  <div class="modal-bg" id="pm-modal" onclick="closeProductModal(event)">
+    <div class="modal">
+      <h3 id="pm-modal-title">Add Product</h3>
+      <div class="pm-error" id="pm-modal-error"></div>
+
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-barcode">Barcode</label>
+        <input class="manual-input" id="pm-f-barcode" type="text" style="width:100%" placeholder="8901234567890">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-name">Item Name</label>
+        <input class="manual-input" id="pm-f-name" type="text" style="width:100%" placeholder="Premium Coffee 500g">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-code">Item Code <span style="opacity:0.7">(optional)</span></label>
+        <input class="manual-input" id="pm-f-code" type="text" style="width:100%" placeholder="COF-500">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-mrp">MRP</label>
+        <input class="manual-input" id="pm-f-mrp" type="number" inputmode="decimal" min="0" step="0.01" style="width:100%" placeholder="19.99" oninput="onProductPriceInput()">
+      </div>
+      <div class="pm-form-row">
+        <label class="pm-label" for="pm-f-sale">Sale Price</label>
+        <input class="manual-input" id="pm-f-sale" type="number" inputmode="decimal" min="0" step="0.01" style="width:100%" placeholder="14.99" oninput="onProductPriceInput()">
+      </div>
+
+      <div class="pm-calc">
+        <span>Discount: <b id="pm-calc-discount">—</b></span>
+        <span>Savings: <b id="pm-calc-savings">—</b></span>
+      </div>
+
+      <div class="modal-btns">
+        <button class="btn btn-outline" onclick="closeProductModal()">Cancel</button>
+        <button class="btn btn-gold" id="pm-save-btn" onclick="saveProduct()">Save Product</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <div id="flash"></div>
@@ -655,5 +777,6 @@
 <script src="vendor/zxing.js"></script>
 <script src="auth.js"></script>
 <script src="app.js"></script>
+<script src="products.js"></script>
 </body>
 </html>

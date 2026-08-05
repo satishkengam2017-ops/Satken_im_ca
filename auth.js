@@ -174,6 +174,7 @@ async function resolveOrgAndEnterApp(){
 
   applyBranding();
   applySubscribeVisibility();
+  if(typeof applyFeaturePermissions==='function')applyFeaturePermissions();
 
   if(isTrialExpired()){ showTrialGate(); return; }
 
