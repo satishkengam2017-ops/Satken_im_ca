@@ -261,10 +261,15 @@ function productsNextPage(){
 /* ── ADD / EDIT / DELETE ── */
 
 var editingProductId=null;
+// Bumped on every modal open and on close. An in-flight edit fetch compares
+// its own token before touching the form, so a slow response from a
+// previously-opened product can never repopulate the form for a different one.
+var productModalSeq=0;
 
 function openProductModal(id, prefillBarcode){
   if(!isProductAdmin()){ alert('Only the store owner can add or edit products.'); return; }
 
+  var seq=++productModalSeq;
   editingProductId=id||null;
   document.getElementById('pm-modal-title').textContent=editingProductId?'Edit Product':'Add Product';
   showProductModalError('');
@@ -280,8 +285,14 @@ function openProductModal(id, prefillBarcode){
   document.getElementById('pm-modal').classList.add('open');
 
   if(editingProductId){
+    // Save stays disabled until this product's own data has loaded, so the
+    // user cannot submit a blank or half-populated form.
+    var saveBtn=document.getElementById('pm-save-btn');
+    saveBtn.disabled=true;
     sb.from('products').select('*').eq('id',editingProductId).eq('org_id',currentOrgId).single()
       .then(function(res){
+        if(seq!==productModalSeq)return; // superseded: this modal was closed or reopened
+        saveBtn.disabled=false;
         if(res.error||!res.data){ showProductModalError('Could not load this product: '+(res.error?res.error.message:'not found')); return; }
         bc.value=res.data.barcode||'';
         nm.value=res.data.item_name||'';
@@ -289,6 +300,7 @@ function openProductModal(id, prefillBarcode){
         mp.value=res.data.mrp;
         sp.value=res.data.sale_price;
         onProductPriceInput();
+        bc.focus();
       });
   } else {
     bc.focus();
@@ -297,7 +309,9 @@ function openProductModal(id, prefillBarcode){
 
 function closeProductModal(e){
   if(e&&e.target!==document.getElementById('pm-modal'))return;
+  productModalSeq++; // invalidate any edit fetch still in flight
   document.getElementById('pm-modal').classList.remove('open');
+  document.getElementById('pm-save-btn').disabled=false;
   editingProductId=null;
 }
 
@@ -354,6 +368,7 @@ async function saveProduct(){
     if(/products_org_barcode_key/.test(msg))msg='A product with that barcode already exists. Edit that product instead.';
     else if(/products_sale_le_mrp/.test(msg))msg='Sale Price cannot be greater than MRP.';
     else if(/products_mrp_positive/.test(msg))msg='MRP must be greater than 0.';
+    else if(/products_sale_price_nonneg/.test(msg))msg='Sale Price cannot be negative.';
     else if(/row-level security/i.test(msg))msg='Only the store owner can add or edit products.';
     showProductModalError(msg);
     return;
