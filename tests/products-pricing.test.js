@@ -6,7 +6,10 @@ var {
   computeDiscountPct,
   formatMoney,
   formatDiscount,
-  validateProductInput
+  validateProductInput,
+  PRODUCT_SORT_COLUMNS,
+  nextSortState,
+  selectionCheckboxState
 } = require('../products.js');
 
 // ── computeSavings ──
@@ -77,5 +80,61 @@ assert.strictEqual(hugeSale.valid, false, 'Sale Price at 1e10 overflows numeric(
 
 var maxOk = validateProductInput({barcode:'123456', itemName:'X', mrp:'9999999999.99', salePrice:'100'});
 assert.strictEqual(maxOk.valid, true, 'the largest value numeric(12,2) accepts is still valid');
+
+// ── PRODUCT_SORT_COLUMNS ──
+assert.deepStrictEqual(
+  PRODUCT_SORT_COLUMNS,
+  ['barcode','item_name','item_code','mrp','sale_price','discount_pct','savings_amount','updated_at'],
+  'the sortable column allow-list is exactly these eight'
+);
+
+// ── nextSortState ──
+assert.deepStrictEqual(
+  nextSortState({col:'item_name', asc:true}, 'mrp'),
+  {col:'mrp', asc:true},
+  'a different column starts ascending'
+);
+assert.deepStrictEqual(
+  nextSortState({col:'mrp', asc:true}, 'mrp'),
+  {col:'mrp', asc:false},
+  'the same column reverses'
+);
+assert.deepStrictEqual(
+  nextSortState({col:'mrp', asc:false}, 'mrp'),
+  {col:'mrp', asc:true},
+  'reversing twice returns to ascending'
+);
+assert.deepStrictEqual(
+  nextSortState({col:'item_name', asc:true}, 'not_a_column'),
+  {col:'item_name', asc:true},
+  'a column outside the allow-list is ignored, never passed to the query'
+);
+assert.deepStrictEqual(
+  nextSortState(null, 'mrp'),
+  {col:'mrp', asc:true},
+  'a missing current state still yields a usable sort'
+);
+
+// ── selectionCheckboxState ──
+assert.deepStrictEqual(
+  selectionCheckboxState(0, 10),
+  {checked:false, indeterminate:false},
+  'nothing selected is unchecked'
+);
+assert.deepStrictEqual(
+  selectionCheckboxState(4, 10),
+  {checked:false, indeterminate:true},
+  'a partial selection is indeterminate'
+);
+assert.deepStrictEqual(
+  selectionCheckboxState(10, 10),
+  {checked:true, indeterminate:false},
+  'all visible rows selected is checked'
+);
+assert.deepStrictEqual(
+  selectionCheckboxState(0, 0),
+  {checked:false, indeterminate:false},
+  'an empty table is neither checked nor indeterminate'
+);
 
 console.log('products pricing tests passed');

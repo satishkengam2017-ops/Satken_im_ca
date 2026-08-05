@@ -438,6 +438,31 @@ async function deleteProduct(id){
   loadProducts();
 }
 
+/* ── SORT AND SELECTION LOGIC ──
+   Pure helpers, unit-tested. Kept free of DOM and Supabase access. */
+
+// Allow-list. Only these names may ever reach .order(), so a column name
+// cannot be injected into the query.
+var PRODUCT_SORT_COLUMNS=['barcode','item_name','item_code','mrp','sale_price','discount_pct','savings_amount','updated_at'];
+
+function nextSortState(current, col){
+  var safeCurrent=current&&current.col
+    ? {col:current.col, asc:current.asc!==false}
+    : {col:'item_name', asc:true};
+
+  if(PRODUCT_SORT_COLUMNS.indexOf(col)<0)return safeCurrent;
+  if(safeCurrent.col===col)return {col:col, asc:!safeCurrent.asc};
+  return {col:col, asc:true};
+}
+
+function selectionCheckboxState(selectedCount, visibleCount){
+  var sel=Number(selectedCount)||0;
+  var vis=Number(visibleCount)||0;
+  if(vis===0||sel===0)return {checked:false, indeterminate:false};
+  if(sel>=vis)return {checked:true, indeterminate:false};
+  return {checked:false, indeterminate:true};
+}
+
 /* Node export shim — inert in the browser, where `module` is undefined. */
 if(typeof module!=='undefined'&&module.exports){
   module.exports={
@@ -446,6 +471,9 @@ if(typeof module!=='undefined'&&module.exports){
     computeDiscountPct:computeDiscountPct,
     formatMoney:formatMoney,
     formatDiscount:formatDiscount,
-    validateProductInput:validateProductInput
+    validateProductInput:validateProductInput,
+    PRODUCT_SORT_COLUMNS:PRODUCT_SORT_COLUMNS,
+    nextSortState:nextSortState,
+    selectionCheckboxState:selectionCheckboxState
   };
 }
