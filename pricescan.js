@@ -264,6 +264,45 @@ function onPriceScanDetected(code){
   runLookup(barcode);
 }
 
+/* ── CUSTOMER DISPLAY HANDOFF ──
+   The customer screen is a separate same-origin window. It is pushed new
+   products over a BroadcastChannel so the staff member can keep scanning
+   without the window being reopened or refocused; localStorage seeds a
+   freshly-opened window and doubles as the fallback for browsers without
+   BroadcastChannel (they receive the 'storage' event instead). */
+
+var psChannel=null;
+var psCustomerWindow=null;
+
+function getCustomerChannel(){
+  if(psChannel)return psChannel;
+  if(typeof BroadcastChannel==='undefined')return null;
+  psChannel=new BroadcastChannel(PRICESCAN_CHANNEL);
+  return psChannel;
+}
+
+function showCustomer(){
+  if(!psCurrentProduct)return;
+  var payload=buildCustomerPayload(psCurrentProduct);
+
+  // Written first so a window opened a moment later renders immediately, and
+  // so browsers without BroadcastChannel still update via the storage event.
+  try{ localStorage.setItem(PRICESCAN_STORAGE_KEY, JSON.stringify(payload)); }catch(e){}
+
+  var ch=getCustomerChannel();
+  if(ch)ch.postMessage(payload);
+
+  // Only open when there is no live window: reopening would steal focus from
+  // the staff device mid-scan.
+  if(!psCustomerWindow||psCustomerWindow.closed){
+    psCustomerWindow=window.open('customer.html','satken-customer');
+    if(!psCustomerWindow){
+      var statusEl=document.getElementById('ps-status');
+      if(statusEl)statusEl.textContent='Allow pop-ups for this site to open the customer display.';
+    }
+  }
+}
+
 /* Node export shim — inert in the browser. Later tasks append code ABOVE
    this block; it must stay last in the file. */
 if(typeof module!=='undefined'&&module.exports){
