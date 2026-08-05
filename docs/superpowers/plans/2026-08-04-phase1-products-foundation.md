@@ -938,7 +938,7 @@ git -c user.name="satishkumarkengam-cpu" -c user.email="kengam4s@gmail.com" comm
 
 **Interfaces:**
 - Consumes: `validateProductInput`, `computeSavings`, `computeDiscountPct`, `formatMoney`, `formatDiscount`, `isProductAdmin`, `loadProducts` (Tasks 2–4); existing globals `sb`, `currentOrgId`.
-- Produces: `openProductModal(id)`, `closeProductModal(e)`, `onProductPriceInput()`, `saveProduct()`, `deleteProduct(id, name)`. Phase 2's "Add Product" button on the not-found screen calls `openProductModal(null, barcode)`.
+- Produces: `openProductModal(id)`, `closeProductModal(e)`, `onProductPriceInput()`, `saveProduct()`, `deleteProduct(id)`. Phase 2's "Add Product" button on the not-found screen calls `openProductModal(null, barcode)`.
 
 - [ ] **Step 1: Add the modal markup**
 
