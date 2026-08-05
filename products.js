@@ -80,6 +80,20 @@ function validateProductInput(input){
   return {valid:errors.length===0, errors:errors};
 }
 
+/* ── PERMISSIONS ──
+   Admin = existing 'owner' role, Staff = existing 'member' role. The
+   database enforces this too (see products RLS in migration_step4.sql);
+   this only keeps the UI honest. */
+
+function isProductAdmin(){
+  return typeof currentUserRole!=='undefined'&&currentUserRole==='owner';
+}
+
+function applyFeaturePermissions(){
+  var btn=document.getElementById('tab-btn-products');
+  if(btn)btn.style.display=isProductAdmin()?'':'none';
+}
+
 /* Node export shim — inert in the browser, where `module` is undefined. */
 if(typeof module!=='undefined'&&module.exports){
   module.exports={
