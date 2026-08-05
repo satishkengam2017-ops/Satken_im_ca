@@ -177,6 +177,93 @@ function addProductForScannedBarcode(){
   openProductModal(null, barcode);
 }
 
+/* ── CAMERA ──
+   A second, independent ZXing reader. app.js owns `codeReader`/`controls` and
+   the #video element for stock counting; this module owns psCodeReader and
+   #ps-video and never touches those. Both scanners cannot hold the camera at
+   once, so starting this one stops that one first. */
+
+var psCodeReader=null;
+
+function startPriceScanCamera(){
+  var zx=window.ZXingBrowser||window.ZXing;
+  var statusEl=document.getElementById('ps-status');
+  if(!zx){ statusEl.textContent='Scanner library error — please refresh.'; return; }
+
+  // Release the camera from the stock-count scanner if it is running.
+  if(typeof stopCamera==='function'){
+    try{ stopCamera(); }catch(e){}
+  }
+
+  var btn=document.getElementById('ps-start-btn');
+  btn.disabled=true;
+  statusEl.textContent='Starting camera…';
+
+  try{
+    var hints=new Map();
+    var formats=[
+      zx.BarcodeFormat.EAN_13,
+      zx.BarcodeFormat.EAN_8,
+      zx.BarcodeFormat.UPC_A,
+      zx.BarcodeFormat.UPC_E,
+      zx.BarcodeFormat.CODE_128,
+      zx.BarcodeFormat.CODE_39,
+      zx.BarcodeFormat.ITF
+    ].filter(Boolean);
+    if(formats.length>0)hints.set(zx.DecodeHintType?zx.DecodeHintType.POSSIBLE_FORMATS:2, formats);
+    psCodeReader=new zx.BrowserMultiFormatReader(hints);
+  }catch(e){
+    statusEl.textContent='Scanner error: '+e.message;
+    btn.disabled=false;
+    return;
+  }
+
+  psCodeReader.decodeFromConstraints(
+    {video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}},
+    document.getElementById('ps-video'),
+    function(result,err){ if(result)onPriceScanDetected(result.getText()); }
+  ).then(function(){
+    document.getElementById('ps-placeholder').style.display='none';
+    document.getElementById('ps-scanline').style.display='block';
+    document.getElementById('ps-start-btn').style.display='none';
+    document.getElementById('ps-stop-btn').style.display='';
+    statusEl.textContent='Point camera at a barcode…';
+  }).catch(function(err){
+    var msg='Camera error.';
+    if(err.name==='NotAllowedError')msg='Camera permission denied — allow camera access in your browser settings.';
+    else if(err.name==='NotFoundError')msg='No camera found on this device.';
+    else if(err.name==='NotReadableError')msg='Camera is in use by another app or tab.';
+    else msg='Camera error: '+err.message;
+    statusEl.textContent=msg;
+    btn.disabled=false;
+  });
+}
+
+function stopPriceScanCamera(){
+  if(psCodeReader){ try{ psCodeReader.reset(); }catch(e){} psCodeReader=null; }
+  var ph=document.getElementById('ps-placeholder');
+  if(ph)ph.style.display='flex';
+  var line=document.getElementById('ps-scanline');
+  if(line)line.style.display='none';
+  var start=document.getElementById('ps-start-btn');
+  var stop=document.getElementById('ps-stop-btn');
+  if(start){ start.style.display=''; start.disabled=false; }
+  if(stop)stop.style.display='none';
+}
+
+/* One successful decode is enough: stop the camera, then look the product up.
+   This is a price check, not a counting session, so it must not keep firing. */
+function onPriceScanDetected(code){
+  var barcode=normalizeBarcode(code);
+  if(!barcode||barcode.length<6)return;
+  stopPriceScanCamera();
+  var statusEl=document.getElementById('ps-status');
+  if(statusEl)statusEl.textContent='Scanned '+barcode+' — looking up…';
+  var manual=document.getElementById('ps-manual-barcode');
+  if(manual)manual.value=barcode;
+  runLookup(barcode);
+}
+
 /* Node export shim — inert in the browser. Later tasks append code ABOVE
    this block; it must stay last in the file. */
 if(typeof module!=='undefined'&&module.exports){
