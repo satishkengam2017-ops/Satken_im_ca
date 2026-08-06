@@ -221,6 +221,9 @@ async function loadProducts(){
     empty.textContent=(productsState.search||productsState.filter!=='all')
       ? 'No products match this search or filter.'
       : 'No products yet. Use Add Product to create one.';
+    // This early return would otherwise skip the repaint below, leaving a "Delete Selected (3)" button over an empty table.
+    refreshSelectionUi();
+    refreshSortIndicators();
     return;
   }
 
@@ -360,7 +363,11 @@ function refreshSelectionUi(){
 function setProductSort(col){
   productsState.sort=nextSortState(productsState.sort, col);
   productsState.page=0;
-  productsSelected={};
+  // Selection is deliberately NOT cleared here. loadProducts() clears it at
+  // the same moment it re-renders the rows, so state and DOM change together;
+  // clearing early would leave ticked checkboxes over an empty selection if
+  // the fetch then failed or was superseded. This matches how paging, search
+  // and filtering already behave.
   loadProducts();
 }
 
