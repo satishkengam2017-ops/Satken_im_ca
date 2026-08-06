@@ -364,11 +364,34 @@ function setProductSort(col){
   loadProducts();
 }
 
+/* A <th> is not keyboard-operable on its own, so the sortable headers carry
+   tabindex="0" and role="button" and are activated here. Space is prevented
+   from scrolling the page, which is the behaviour a real button would have. */
+function onSortKeydown(e){
+  if(e.key!=='Enter'&&e.key!==' '&&e.key!=='Spacebar')return;
+  var th=e.currentTarget;
+  var col=th.getAttribute('data-sort');
+  if(!col)return;
+  e.preventDefault();
+  setProductSort(col);
+}
+
 function refreshSortIndicators(){
   var sort=productsState.sort||{col:'item_name', asc:true};
   document.querySelectorAll('#tab-products .pm-sort-ind').forEach(function(el){
     var col=el.getAttribute('data-ind');
     el.textContent=(col===sort.col)?(sort.asc?'▲':'▼'):'';
+  });
+
+  // Bind once per header, and expose sort direction to assistive tech.
+  document.querySelectorAll('#tab-products .pm-sortable').forEach(function(th){
+    if(!th.getAttribute('data-kb')){
+      th.setAttribute('data-kb','1');
+      th.addEventListener('keydown', onSortKeydown);
+    }
+    var col=th.getAttribute('data-sort');
+    if(col===sort.col)th.setAttribute('aria-sort', sort.asc?'ascending':'descending');
+    else th.removeAttribute('aria-sort');
   });
 }
 
