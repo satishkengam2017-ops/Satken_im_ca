@@ -114,6 +114,16 @@ assert.deepStrictEqual(
   {col:'mrp', asc:true},
   'a missing current state still yields a usable sort'
 );
+assert.deepStrictEqual(
+  nextSortState({col:'injected_col', asc:true}, 'injected_col'),
+  {col:'item_name', asc:true},
+  'an unlisted column already in state cannot be returned back out'
+);
+assert.deepStrictEqual(
+  nextSortState({col:'injected_col', asc:true}, 'mrp'),
+  {col:'mrp', asc:true},
+  'a valid click recovers from an unlisted column in state'
+);
 
 // ── selectionCheckboxState ──
 assert.deepStrictEqual(

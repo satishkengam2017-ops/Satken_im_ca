@@ -446,7 +446,10 @@ async function deleteProduct(id){
 var PRODUCT_SORT_COLUMNS=['barcode','item_name','item_code','mrp','sale_price','discount_pct','savings_amount','updated_at'];
 
 function nextSortState(current, col){
-  var safeCurrent=current&&current.col
+  // The incoming state's column is validated too, not just the clicked one.
+  // Otherwise a caller that seeded state with an unlisted column could get it
+  // returned straight back, and the allow-list would only be advisory.
+  var safeCurrent=(current&&PRODUCT_SORT_COLUMNS.indexOf(current.col)>=0)
     ? {col:current.col, asc:current.asc!==false}
     : {col:'item_name', asc:true};
 
