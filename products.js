@@ -105,7 +105,8 @@ function applyFeaturePermissions(){
   // logout, so the next user to sign in on a shared device would land on the
   // previous account's catalogue. Clear the rendered data and leave the tab.
   if(!admin){
-    productsState={page:0, search:'', filter:'all', total:0, rows:[]};
+    productsState=defaultProductsState();
+    productsSelected={};
     var tb=document.getElementById('pm-tbody');
     if(tb)tb.innerHTML='';
     var search=document.getElementById('pm-search');
@@ -125,8 +126,21 @@ var RECENT_DAYS=30;
 // render. The debounce only spaces out request starts, not completions.
 var productsRequestSeq=0;
 
-var productsState={page:0, search:'', filter:'all', total:0, rows:[]};
+/* Single source of truth for the list's initial state. Assigned both at load
+   and on logout, so a literal repeated in two places would drift as soon as a
+   field is added. */
+function defaultProductsState(){
+  return {page:0, search:'', filter:'all', total:0, rows:[], sort:{col:'item_name', asc:true}};
+}
+
+var productsState=defaultProductsState();
 var productSearchTimer=null;
+
+/* Selection is scoped to the currently visible page and cleared whenever the
+   visible set changes. "Select All" means what is on screen, and clearing on
+   navigation makes it structurally impossible to bulk-delete rows the user
+   cannot see. Keyed by product id. */
+var productsSelected={};
 
 function buildProductsQuery(){
   var q=sb.from('products').select('*',{count:'exact'}).eq('org_id',currentOrgId);
@@ -148,8 +162,20 @@ function buildProductsQuery(){
     q=q.gte('updated_at',new Date(Date.now()-RECENT_DAYS*86400000).toISOString());
   }
 
+  // Sorting is applied server-side so it orders the whole catalogue. Sorting
+  // only the fetched page would be actively misleading across pagination.
+  // The column is re-checked against the allow-list here as well, so nothing
+  // outside it can reach .order() even if state were tampered with.
+  var sort=productsState.sort||{col:'item_name', asc:true};
+  var col=PRODUCT_SORT_COLUMNS.indexOf(sort.col)>=0?sort.col:'item_name';
+  var asc=sort.asc!==false;
+
   var from=productsState.page*PRODUCTS_PAGE_SIZE;
-  return q.order('item_name',{ascending:true}).range(from,from+PRODUCTS_PAGE_SIZE-1);
+  // `id` is a deterministic tiebreaker. Without it, ties (very common on
+  // discount_pct and savings_amount, where most rows are 0) have no stable
+  // order across separate LIMIT/OFFSET requests, so a row can appear on two
+  // pages while another is skipped entirely.
+  return q.order(col,{ascending:asc}).order('id',{ascending:true}).range(from,from+PRODUCTS_PAGE_SIZE-1);
 }
 
 async function loadProducts(){
@@ -162,7 +188,14 @@ async function loadProducts(){
   var seq=++productsRequestSeq;
 
   summary.textContent='Loading…';
+  // Selection is cleared at the same instant the rows leave the DOM. Clearing
+  // it later (after the await) leaves a live "Delete Selected (N)" button over
+  // an emptied or errored table, which could delete rows the user cannot see —
+  // the error and superseded paths both return before any later clear runs.
   tbody.innerHTML='';
+  productsSelected={};
+  refreshSelectionUi();
+  refreshSortIndicators();
   empty.style.display='none';
   pager.style.display='none';
 
@@ -204,6 +237,8 @@ async function loadProducts(){
   summary.textContent='Showing '+first+'–'+last+' of '+productsState.total+' product'+(productsState.total===1?'':'s');
 
   tbody.innerHTML=rows.map(renderProductRow).join('');
+  refreshSelectionUi();
+  refreshSortIndicators();
 
   var pages=Math.ceil(productsState.total/PRODUCTS_PAGE_SIZE);
   if(pages>1){
@@ -219,13 +254,16 @@ function renderProductRow(p, i){
   var zero=!Number(p.discount_pct);
   var updated=p.updated_at?new Date(p.updated_at).toLocaleDateString():'—';
   return '<tr>'+
+    '<td class="pm-col-check">'+(admin
+      ? '<input type="checkbox" class="pm-check" onchange="toggleProductSelectionAt(this,'+i+')" aria-label="Select product">'
+      : '')+'</td>'+
     '<td class="pm-mono">'+escapeHtml(p.barcode)+'</td>'+
-    '<td>'+escapeHtml(p.item_name)+'</td>'+
+    '<td class="pm-wrapcell">'+escapeHtml(p.item_name)+'</td>'+
     '<td class="pm-mono">'+escapeHtml(p.item_code||'—')+'</td>'+
-    '<td class="pm-strike">'+formatMoney(p.mrp)+'</td>'+
-    '<td class="pm-sale">'+formatMoney(p.sale_price)+'</td>'+
-    '<td><span class="pm-badge'+(zero?' zero':'')+'">'+formatDiscount(p.discount_pct)+'</span></td>'+
-    '<td>'+formatMoney(p.savings_amount)+'</td>'+
+    '<td class="pm-strike pm-num">'+formatMoney(p.mrp)+'</td>'+
+    '<td class="pm-sale pm-num">'+formatMoney(p.sale_price)+'</td>'+
+    '<td class="pm-num"><span class="pm-badge'+(zero?' zero':'')+'">'+formatDiscount(p.discount_pct)+'</span></td>'+
+    '<td class="pm-num">'+formatMoney(p.savings_amount)+'</td>'+
     '<td>'+escapeHtml(updated)+'</td>'+
     '<td>'+(admin
       ? '<button class="pm-act" onclick="editProductAt('+i+')">Edit</button>'+
@@ -276,6 +314,130 @@ function productsPrevPage(){
 function productsNextPage(){
   if((productsState.page+1)*PRODUCTS_PAGE_SIZE>=productsState.total)return;
   productsState.page++;
+  loadProducts();
+}
+
+/* ── SELECTION ── */
+
+function selectedProductIds(){
+  return Object.keys(productsSelected);
+}
+
+/* Dispatched by row index rather than by an id interpolated into the
+   attribute — an integer cannot carry a payload. */
+function toggleProductSelectionAt(el, i){
+  var p=productsState.rows[i];
+  if(!p)return;
+  if(el.checked)productsSelected[p.id]=true;
+  else delete productsSelected[p.id];
+  refreshSelectionUi();
+}
+
+function toggleSelectAllProducts(el){
+  var rows=productsState.rows||[];
+  productsSelected={};
+  if(el.checked){
+    rows.forEach(function(p){ productsSelected[p.id]=true; });
+  }
+  document.querySelectorAll('#pm-tbody .pm-check').forEach(function(cb){ cb.checked=el.checked; });
+  refreshSelectionUi();
+}
+
+/* Drives the master checkbox and the Delete Selected button from the current
+   counts. Kept in one place so the two can never disagree. */
+function refreshSelectionUi(){
+  var count=selectedProductIds().length;
+  var visible=(productsState.rows||[]).length;
+
+  var all=document.getElementById('pm-check-all');
+  if(all){
+    var s=selectionCheckboxState(count, visible);
+    all.checked=s.checked;
+    all.indeterminate=s.indeterminate;
+  }
+
+  var btn=document.getElementById('pm-delete-selected');
+  if(btn){
+    btn.disabled=count===0||!isProductAdmin();
+    btn.textContent=count>0?('Delete Selected ('+count+')'):'Delete Selected';
+  }
+}
+
+/* ── SORTING ── */
+
+function setProductSort(col){
+  productsState.sort=nextSortState(productsState.sort, col);
+  productsState.page=0;
+  // Selection is not cleared here: loadProducts() clears it as it empties the
+  // table, so every navigation path — paging, search, filter and sort — clears
+  // through exactly one place.
+  loadProducts();
+}
+
+/* A <th> is not keyboard-operable on its own, so the sortable headers carry
+   tabindex="0" and are activated here. They deliberately do NOT carry
+   role="button": that would override the implicit columnheader role, which is
+   the only role aria-sort is defined on, and would make the header row read as
+   a row of buttons to a screen reader. Space is prevented from scrolling. */
+function onSortKeydown(e){
+  if(e.key!=='Enter'&&e.key!==' '&&e.key!=='Spacebar')return;
+  var th=e.currentTarget;
+  var col=th.getAttribute('data-sort');
+  if(!col)return;
+  e.preventDefault();
+  setProductSort(col);
+}
+
+function refreshSortIndicators(){
+  var sort=productsState.sort||{col:'item_name', asc:true};
+  document.querySelectorAll('#tab-products .pm-sort-ind').forEach(function(el){
+    var col=el.getAttribute('data-ind');
+    el.textContent=(col===sort.col)?(sort.asc?'▲':'▼'):'';
+  });
+
+  // Bind once per header, and expose sort direction to assistive tech.
+  document.querySelectorAll('#tab-products .pm-sortable').forEach(function(th){
+    if(!th.getAttribute('data-kb')){
+      th.setAttribute('data-kb','1');
+      th.addEventListener('keydown', onSortKeydown);
+    }
+    var col=th.getAttribute('data-sort');
+    if(col===sort.col)th.setAttribute('aria-sort', sort.asc?'ascending':'descending');
+    else th.removeAttribute('aria-sort');
+  });
+}
+
+/* ── BULK DELETE ── */
+
+async function deleteSelectedProducts(){
+  if(!isProductAdmin()){ alert('Only the store owner can delete products.'); return; }
+
+  var ids=selectedProductIds();
+  if(!ids.length)return;
+
+  if(!confirm('Delete '+ids.length+' selected product'+(ids.length===1?'':'s')+'? This cannot be undone.'))return;
+
+  var btn=document.getElementById('pm-delete-selected');
+  if(btn)btn.disabled=true;
+
+  // .select('id') so a zero-row result is detectable: PostgREST reports no
+  // error when an RLS USING clause filters every candidate row out.
+  var res=await sb.from('products').delete().in('id',ids).eq('org_id',currentOrgId).select('id');
+
+  if(res.error){
+    alert('Could not delete: '+res.error.message);
+    refreshSelectionUi();
+    return;
+  }
+
+  var removed=(res.data||[]).length;
+  if(removed===0){
+    alert('Nothing was deleted. The products may already have been removed, or your subscription may no longer be active.');
+  }else if(removed<ids.length){
+    alert('Deleted '+removed+' of '+ids.length+' selected products. The rest may already have been removed, or your subscription may no longer be active.');
+  }
+
+  productsSelected={};
   loadProducts();
 }
 
@@ -438,6 +600,34 @@ async function deleteProduct(id){
   loadProducts();
 }
 
+/* ── SORT AND SELECTION LOGIC ──
+   Pure helpers, unit-tested. Kept free of DOM and Supabase access. */
+
+// Allow-list. Only these names may ever reach .order(), so a column name
+// cannot be injected into the query.
+var PRODUCT_SORT_COLUMNS=['barcode','item_name','item_code','mrp','sale_price','discount_pct','savings_amount','updated_at'];
+
+function nextSortState(current, col){
+  // The incoming state's column is validated too, not just the clicked one.
+  // Otherwise a caller that seeded state with an unlisted column could get it
+  // returned straight back, and the allow-list would only be advisory.
+  var safeCurrent=(current&&PRODUCT_SORT_COLUMNS.indexOf(current.col)>=0)
+    ? {col:current.col, asc:current.asc!==false}
+    : {col:'item_name', asc:true};
+
+  if(PRODUCT_SORT_COLUMNS.indexOf(col)<0)return safeCurrent;
+  if(safeCurrent.col===col)return {col:col, asc:!safeCurrent.asc};
+  return {col:col, asc:true};
+}
+
+function selectionCheckboxState(selectedCount, visibleCount){
+  var sel=Number(selectedCount)||0;
+  var vis=Number(visibleCount)||0;
+  if(vis===0||sel===0)return {checked:false, indeterminate:false};
+  if(sel>=vis)return {checked:true, indeterminate:false};
+  return {checked:false, indeterminate:true};
+}
+
 /* Node export shim — inert in the browser, where `module` is undefined. */
 if(typeof module!=='undefined'&&module.exports){
   module.exports={
@@ -446,6 +636,9 @@ if(typeof module!=='undefined'&&module.exports){
     computeDiscountPct:computeDiscountPct,
     formatMoney:formatMoney,
     formatDiscount:formatDiscount,
-    validateProductInput:validateProductInput
+    validateProductInput:validateProductInput,
+    PRODUCT_SORT_COLUMNS:PRODUCT_SORT_COLUMNS,
+    nextSortState:nextSortState,
+    selectionCheckboxState:selectionCheckboxState
   };
 }

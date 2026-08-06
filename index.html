@@ -379,6 +379,46 @@
   .pm-calc { display:flex; gap:16px; padding:10px 12px; border-radius:10px; background:rgba(139,94,52,0.08); margin:4px 0 14px; font-size:16px; }
   .pm-calc b { color:var(--gold); }
   .pm-error { color:var(--red); font-size:16px; margin-bottom:10px; display:none; }
+
+  /* ── PRODUCT TABLE: WIDTH AND DENSITY ──
+     The app is a 480px mobile-first column (see the `main` rule above), which
+     is why the product table scrolled horizontally: the container, not the
+     columns, was the constraint. Widen ONLY this panel, and only where there
+     is room. Every other tab keeps its 480px layout untouched.
+     `.pm-table-wrap` keeps its existing overflow-x:auto deliberately — `auto`
+     shows a bar only when content actually overflows, so once the container
+     is wide enough the bar simply stops appearing, and narrow screens still
+     scroll rather than breaking. */
+  @media (min-width:900px){
+    main:has(#tab-products.active){ max-width:1400px; }
+  }
+
+  .pm-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .pm-toolbar h2 { font-family:'Cinzel',serif; font-size:16px; font-weight:600; color:var(--gold); letter-spacing:2px; text-transform:uppercase; }
+  .pm-toolbar-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pm-btn-sm { font-family:'Cormorant Garamond',serif; font-size:15px; font-weight:600; padding:6px 14px; border-radius:20px; cursor:pointer; white-space:nowrap; background:rgba(139,94,52,0.08); color:var(--gold); border:1px solid var(--gold); }
+  .pm-btn-sm:hover:not(:disabled) { background:rgba(139,94,52,0.16); }
+  .pm-btn-sm:disabled { opacity:0.4; cursor:not-allowed; border-color:var(--input-border); color:var(--muted); }
+  .pm-btn-sm.danger { color:var(--red); border-color:var(--red); background:var(--red-light); }
+  .pm-btn-sm.danger:hover:not(:disabled) { background:rgba(232,90,106,0.24); }
+
+  /* Denser cells and middle alignment so ten columns fit and read cleanly. */
+  .pm-table th, .pm-table td { padding:9px 10px; vertical-align:middle; }
+  .pm-col-check { width:38px; text-align:center; }
+  /* `.pm-table th` is more specific than `.pm-col-check`, so the header cell
+     needs this to match the centring of the body cells. */
+  .pm-table th.pm-col-check { text-align:center; }
+  .pm-check { width:16px; height:16px; cursor:pointer; accent-color:var(--gold); }
+  .pm-sortable { cursor:pointer; user-select:none; }
+  .pm-sortable:hover { color:var(--gold); }
+  .pm-sort-ind { display:inline-block; width:12px; font-size:11px; color:var(--gold); }
+  /* Figures right-aligned so they compare down a column. */
+  .pm-num { text-align:right; }
+  .pm-table th.pm-num { text-align:right; }
+  /* Item Name is the one cell allowed to wrap; everything else stays on one
+     line so prices, barcodes and dates never break mid-value. */
+  .pm-wrapcell { white-space:normal; min-width:180px; }
+  .pm-table tbody tr:hover { background:rgba(139,94,52,0.06); }
   /* The shared .modal is sized for a two-line confirm dialog. The product form
      is far taller, and .modal-bg is a fixed flex-end container with no scroll,
      so without this the top of the form (including validation errors) is
@@ -671,12 +711,12 @@
 
     <!-- ══════════ PRODUCTS TAB ══════════ -->
     <div class="tab-panel" id="tab-products">
-      <div class="section-header">
+      <div class="pm-toolbar">
         <h2>Product Catalogue</h2>
-        <button class="refresh-btn" onclick="openProductModal()">
-          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Product
-        </button>
+        <div class="pm-toolbar-actions">
+          <button class="pm-btn-sm" onclick="openProductModal()">Add Product</button>
+          <button class="pm-btn-sm danger" id="pm-delete-selected" disabled onclick="deleteSelectedProducts()">Delete Selected</button>
+        </div>
       </div>
 
       <input class="manual-input pm-search" id="pm-search" type="text"
@@ -697,9 +737,16 @@
         <table class="pm-table">
           <thead>
             <tr>
-              <th>Barcode</th><th>Item Name</th><th>Item Code</th>
-              <th>MRP</th><th>Sale Price</th><th>Discount</th><th>Savings</th>
-              <th>Last Updated</th><th>Actions</th>
+              <th class="pm-col-check"><input type="checkbox" class="pm-check" id="pm-check-all" onchange="toggleSelectAllProducts(this)" aria-label="Select all visible products"></th>
+              <th class="pm-sortable" tabindex="0" data-sort="barcode" onclick="setProductSort('barcode')">Barcode<span class="pm-sort-ind" data-ind="barcode"></span></th>
+              <th class="pm-sortable" tabindex="0" data-sort="item_name" onclick="setProductSort('item_name')">Item Name<span class="pm-sort-ind" data-ind="item_name"></span></th>
+              <th class="pm-sortable" tabindex="0" data-sort="item_code" onclick="setProductSort('item_code')">Item Code<span class="pm-sort-ind" data-ind="item_code"></span></th>
+              <th class="pm-sortable pm-num" tabindex="0" data-sort="mrp" onclick="setProductSort('mrp')">MRP<span class="pm-sort-ind" data-ind="mrp"></span></th>
+              <th class="pm-sortable pm-num" tabindex="0" data-sort="sale_price" onclick="setProductSort('sale_price')">Sale Price<span class="pm-sort-ind" data-ind="sale_price"></span></th>
+              <th class="pm-sortable pm-num" tabindex="0" data-sort="discount_pct" onclick="setProductSort('discount_pct')">Discount<span class="pm-sort-ind" data-ind="discount_pct"></span></th>
+              <th class="pm-sortable pm-num" tabindex="0" data-sort="savings_amount" onclick="setProductSort('savings_amount')">Savings<span class="pm-sort-ind" data-ind="savings_amount"></span></th>
+              <th class="pm-sortable" tabindex="0" data-sort="updated_at" onclick="setProductSort('updated_at')">Updated<span class="pm-sort-ind" data-ind="updated_at"></span></th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="pm-tbody"></tbody>
