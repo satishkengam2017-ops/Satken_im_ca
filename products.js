@@ -171,7 +171,11 @@ function buildProductsQuery(){
   var asc=sort.asc!==false;
 
   var from=productsState.page*PRODUCTS_PAGE_SIZE;
-  return q.order(col,{ascending:asc}).range(from,from+PRODUCTS_PAGE_SIZE-1);
+  // `id` is a deterministic tiebreaker. Without it, ties (very common on
+  // discount_pct and savings_amount, where most rows are 0) have no stable
+  // order across separate LIMIT/OFFSET requests, so a row can appear on two
+  // pages while another is skipped entirely.
+  return q.order(col,{ascending:asc}).order('id',{ascending:true}).range(from,from+PRODUCTS_PAGE_SIZE-1);
 }
 
 async function loadProducts(){
@@ -184,7 +188,14 @@ async function loadProducts(){
   var seq=++productsRequestSeq;
 
   summary.textContent='Loading…';
+  // Selection is cleared at the same instant the rows leave the DOM. Clearing
+  // it later (after the await) leaves a live "Delete Selected (N)" button over
+  // an emptied or errored table, which could delete rows the user cannot see —
+  // the error and superseded paths both return before any later clear runs.
   tbody.innerHTML='';
+  productsSelected={};
+  refreshSelectionUi();
+  refreshSortIndicators();
   empty.style.display='none';
   pager.style.display='none';
 
@@ -201,9 +212,6 @@ async function loadProducts(){
   // Cached so deleteProduct() can show a product's real name without having
   // to round-trip HTML-escaped text back out of an onclick attribute.
   productsState.rows=rows;
-  // The visible set just changed, so any prior selection no longer refers to
-  // what is on screen.
-  productsSelected={};
   productsState.total=res.count||0;
 
   // If rows were deleted while we were on a later page, the current page can
@@ -221,9 +229,6 @@ async function loadProducts(){
     empty.textContent=(productsState.search||productsState.filter!=='all')
       ? 'No products match this search or filter.'
       : 'No products yet. Use Add Product to create one.';
-    // This early return would otherwise skip the repaint below, leaving a "Delete Selected (3)" button over an empty table.
-    refreshSelectionUi();
-    refreshSortIndicators();
     return;
   }
 
@@ -250,7 +255,7 @@ function renderProductRow(p, i){
   var updated=p.updated_at?new Date(p.updated_at).toLocaleDateString():'—';
   return '<tr>'+
     '<td class="pm-col-check">'+(admin
-      ? '<input type="checkbox" class="pm-check" data-row="'+i+'" onchange="toggleProductSelectionAt(this,'+i+')" aria-label="Select product">'
+      ? '<input type="checkbox" class="pm-check" onchange="toggleProductSelectionAt(this,'+i+')" aria-label="Select product">'
       : '')+'</td>'+
     '<td class="pm-mono">'+escapeHtml(p.barcode)+'</td>'+
     '<td class="pm-wrapcell">'+escapeHtml(p.item_name)+'</td>'+
@@ -363,17 +368,17 @@ function refreshSelectionUi(){
 function setProductSort(col){
   productsState.sort=nextSortState(productsState.sort, col);
   productsState.page=0;
-  // Selection is deliberately NOT cleared here. loadProducts() clears it at
-  // the same moment it re-renders the rows, so state and DOM change together;
-  // clearing early would leave ticked checkboxes over an empty selection if
-  // the fetch then failed or was superseded. This matches how paging, search
-  // and filtering already behave.
+  // Selection is not cleared here: loadProducts() clears it as it empties the
+  // table, so every navigation path — paging, search, filter and sort — clears
+  // through exactly one place.
   loadProducts();
 }
 
 /* A <th> is not keyboard-operable on its own, so the sortable headers carry
-   tabindex="0" and role="button" and are activated here. Space is prevented
-   from scrolling the page, which is the behaviour a real button would have. */
+   tabindex="0" and are activated here. They deliberately do NOT carry
+   role="button": that would override the implicit columnheader role, which is
+   the only role aria-sort is defined on, and would make the header row read as
+   a row of buttons to a screen reader. Space is prevented from scrolling. */
 function onSortKeydown(e){
   if(e.key!=='Enter'&&e.key!==' '&&e.key!=='Spacebar')return;
   var th=e.currentTarget;
