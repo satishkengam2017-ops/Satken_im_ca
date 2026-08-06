@@ -110,6 +110,10 @@ function render(p){
   // Nothing here is computed or embellished.
   var pct=Number(p.discountPct);
   var hasOffer=isFinite(pct)&&pct>0;
+  // Shown only when there is a real number to show. Gating the savings line on
+  // discountPct alone would render a bare "You Save" with nothing after it if
+  // the two values ever disagree.
+  var savings=money(p.savingsAmount);
 
   wrap.innerHTML=
     '<div class="eyebrow">'+(hasOffer?'Special Offer':'Price')+'</div>'+
@@ -121,7 +125,7 @@ function render(p){
     '</div>'+
     (hasOffer
       ? '<div class="discount">'+Math.round(pct)+'% OFF</div>'+
-        '<div class="savings">You Save '+esc(money(p.savingsAmount))+'</div>'
+        (savings?'<div class="savings">You Save '+esc(savings)+'</div>':'')
       : '');
 }
 

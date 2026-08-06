@@ -54,6 +54,11 @@ function buildCustomerPayload(p){
 
 var psCurrentProduct=null;
 var psLookupSeq=0;
+/* The barcode shown on the current not-found card. Captured when that card is
+   rendered rather than re-read from the DOM or the manual input later: the
+   input is freely editable after a lookup, so trusting it could attach a
+   different barcode to a newly created product than the one on screen. */
+var psNotFoundBarcode=null;
 
 async function lookupProductByBarcode(raw){
   var check=classifyBarcode(raw);
@@ -89,6 +94,7 @@ function submitManualBarcode(){
 
 function scanAnother(){
   psCurrentProduct=null;
+  psNotFoundBarcode=null;
   document.getElementById('ps-result').innerHTML='';
   var el=document.getElementById('ps-manual-barcode');
   if(el)el.value='';
@@ -106,6 +112,7 @@ function focusManualBarcode(){
 function renderScanResult(result){
   var el=document.getElementById('ps-result');
   psCurrentProduct=null;
+  psNotFoundBarcode=null;
 
   if(result.status==='empty'){
     el.innerHTML='<div class="ps-card"><div class="ps-error">Enter or scan a barcode first.</div></div>';
@@ -123,6 +130,7 @@ function renderScanResult(result){
   }
 
   if(result.status==='notfound'){
+    psNotFoundBarcode=result.barcode;
     el.innerHTML='<div class="ps-card notfound">'+
       '<div class="ps-notfound-title">Product Not Found</div>'+
       '<div class="ps-meta">Barcode: '+escapeHtml(result.barcode)+'</div>'+
@@ -167,14 +175,11 @@ function renderScanResult(result){
 }
 
 function addProductForScannedBarcode(){
-  var barcode=normalizeBarcode(document.getElementById('ps-manual-barcode').value);
-  if(!barcode){
-    // Came from a camera scan rather than the manual field — recover it from
-    // the rendered not-found card.
-    var meta=document.querySelector('#ps-result .ps-meta');
-    if(meta)barcode=normalizeBarcode(meta.textContent.replace(/^Barcode:\s*/,''));
-  }
-  openProductModal(null, barcode);
+  // Always the barcode the not-found card is actually showing. The manual
+  // input is deliberately not consulted: it stays editable after a lookup, so
+  // using it could create a product under a barcode the user never searched.
+  if(!psNotFoundBarcode)return;
+  openProductModal(null, psNotFoundBarcode);
 }
 
 /* ── CAMERA ──
@@ -194,6 +199,8 @@ function startPriceScanCamera(){
   if(typeof stopCamera==='function'){
     try{ stopCamera(); }catch(e){}
   }
+
+  bindPriceScanLifecycle();
 
   var btn=document.getElementById('ps-start-btn');
   btn.disabled=true;
@@ -218,6 +225,7 @@ function startPriceScanCamera(){
     return;
   }
 
+  try{
   psCodeReader.decodeFromConstraints(
     {video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}},
     document.getElementById('ps-video'),
@@ -237,6 +245,13 @@ function startPriceScanCamera(){
     statusEl.textContent=msg;
     btn.disabled=false;
   });
+  }catch(e){
+    // Some builds/browsers throw synchronously rather than rejecting, which
+    // would otherwise strand the button disabled on "Starting camera…".
+    stopPriceScanCamera();
+    statusEl.textContent='Camera error: '+e.message;
+    btn.disabled=false;
+  }
 }
 
 function stopPriceScanCamera(){
@@ -249,6 +264,24 @@ function stopPriceScanCamera(){
   var stop=document.getElementById('ps-stop-btn');
   if(start){ start.style.display=''; start.disabled=false; }
   if(stop)stop.style.display='none';
+}
+
+/* Release the camera if the page is hidden or being unloaded. Without this the
+   reader keeps running — and the device's camera indicator stays lit — when the
+   user switches tabs or backgrounds the app without pressing Stop.
+   Registered lazily from startPriceScanCamera so this module still has no
+   top-level DOM access and remains require()-able under Node. */
+var psLifecycleBound=false;
+
+function bindPriceScanLifecycle(){
+  if(psLifecycleBound)return;
+  psLifecycleBound=true;
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState==='hidden'&&psCodeReader)stopPriceScanCamera();
+  });
+  window.addEventListener('pagehide', function(){
+    if(psCodeReader)stopPriceScanCamera();
+  });
 }
 
 /* One successful decode is enough: stop the camera, then look the product up.
@@ -293,9 +326,21 @@ function showCustomer(){
   if(ch)ch.postMessage(payload);
 
   // Only open when there is no live window: reopening would steal focus from
-  // the staff device mid-scan.
+  // the staff device mid-scan. A reload of this page resets psCustomerWindow,
+  // so first try to re-acquire an already-open customer window by name —
+  // passing an empty URL returns its handle without navigating it. Only
+  // navigate when what comes back is genuinely blank.
   if(!psCustomerWindow||psCustomerWindow.closed){
-    psCustomerWindow=window.open('customer.html','satken-customer');
+    var existing=null;
+    try{
+      existing=window.open('','satken-customer');
+      if(existing&&existing.location&&existing.location.href&&existing.location.href!=='about:blank'){
+        psCustomerWindow=existing;
+      }
+    }catch(e){ existing=null; }
+
+    if(!psCustomerWindow||psCustomerWindow.closed)
+      psCustomerWindow=window.open('customer.html','satken-customer');
     if(!psCustomerWindow){
       var statusEl=document.getElementById('ps-status');
       if(statusEl)statusEl.textContent='Allow pop-ups for this site to open the customer display.';
