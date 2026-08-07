@@ -303,7 +303,9 @@ async function prepareImport(text, filename){
   piPending=parsed.rows;
 
   summaryEl.innerHTML='<b>'+sum.total+'</b> row'+(sum.total===1?'':'s')+
-    ' · <b>'+sum.added+'</b> new · <b>'+sum.updated+'</b> price update'+
+    // Not "price updates": an upsert replaces Item Name and Item Code too, so
+    // an old export re-imported to fix prices would revert every rename.
+    ' · <b>'+sum.added+'</b> new · <b>'+sum.updated+'</b> update'+
     (sum.updated===1?'':'s')+
     (parsed.warnings.length?' · <b>'+parsed.warnings.length+'</b> warning'+(parsed.warnings.length===1?'':'s'):'');
 

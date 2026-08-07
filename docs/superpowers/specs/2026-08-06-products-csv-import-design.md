@@ -57,9 +57,11 @@ Choose file → parse → validate → fetch the org's existing barcodes → sum
 
 The summary is what makes this safe to ship:
 
-> **240 rows** · 12 new · 228 price updates · 0 errors
+> **240 rows** · 12 new · 228 updates · 0 errors
 
 Splitting "240 rows" into new versus updates is the point of fetching existing barcodes first. That second number is what tells an owner whether they are about to rewrite their entire catalogue because they picked the wrong file. Existing barcodes are fetched with the paging approach already used by `fetchAllUnmatched()`, since PostgREST caps a single response at 1000 rows.
+
+Deliberately "updates", not "price updates": an upsert replaces Item Name and Item Code as well, so an old export re-imported to correct prices would silently revert every product renamed since. Naming only prices would understate what the owner is agreeing to.
 
 If any row has an error, the Import button is disabled and the first five errors are listed with their line numbers. Warnings do not block.
 
