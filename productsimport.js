@@ -336,6 +336,30 @@ function endSentence(s){
   return (/[.!?]$/.test(t)?t:t+'.')+' ';
 }
 
+var IMPORT_UNCONFIRMED='We could not confirm whether it went through. '+
+  'Refresh the products list and check before importing again.';
+
+/* A SQLSTATE proves Postgres rejected the statement, and the RPC is a single
+   transaction, so nothing was written. Two classes are the exception: class 08
+   is a connection exception and 57P01 is the server terminating the
+   connection. Both are five characters, but both mean the link died mid-flight
+   — the transaction may well have committed. Treat them as unknown. */
+function importWasRejected(code){
+  if(!/^[0-9A-Za-z]{5}$/.test(code))return false;
+  if(/^08/.test(code))return false;
+  if(code==='57P01')return false;
+  return true;
+}
+
+function reportImportFailure(text){
+  document.getElementById('pi-summary').textContent=text;
+  document.getElementById('pi-import-btn').disabled=false;
+  // The modal is held open for the duration of the import, but if anything
+  // ever closes it the owner must still be told — silence here reads as
+  // success.
+  if(!document.getElementById('pi-modal').classList.contains('open'))alert(text);
+}
+
 async function runProductImport(){
   if(piImporting)return; // a second click while the first RPC is in flight
   if(!piPending||!piPending.length)return;
@@ -350,32 +374,36 @@ async function runProductImport(){
   // 'upsert' updates existing barcodes and inserts new ones. Nothing is
   // deleted. The RPC validates again and runs in one transaction, so if it
   // raises, nothing at all was written.
-  var res=await sb.rpc('import_products',{
-    p_org_id:currentOrgId,
-    p_rows:piPending,
-    p_mode:'upsert'
-  });
+  var res=null,thrown=null;
+  try{
+    res=await sb.rpc('import_products',{
+      p_org_id:currentOrgId,
+      p_rows:piPending,
+      p_mode:'upsert'
+    });
+  }catch(err){
+    thrown=err;
+  }
 
+  // Released on every path — settled, rejected or thrown. Left set, it would
+  // wedge the modal permanently undismissable and refuse every later import.
   piImporting=false;
 
+  if(thrown){
+    // A throw says even less than an error response: we never heard back at
+    // all, so the transaction's fate is unknown.
+    reportImportFailure('Import failed: '+
+      endSentence(thrown&&thrown.message?thrown.message:thrown)+IMPORT_UNCONFIRMED);
+    return;
+  }
+
   if(res.error){
-    // A rejection from Postgres carries a SQLSTATE, and the RPC is a single
-    // transaction, so that case really did change nothing. A transport failure
-    // carries no code and proves nothing: the transaction may have committed
-    // with the response lost on the way back. Never claim the catalogue is
-    // untouched when we cannot know it.
+    // Never claim the catalogue is untouched when we cannot know it.
     var code=res.error.code?String(res.error.code):'';
     var msg=endSentence(res.error.message);
-    var text=/^[0-9A-Za-z]{5}$/.test(code)
+    reportImportFailure(importWasRejected(code)
       ? 'Import failed: '+msg+'It was rejected before anything was written, so nothing was changed.'
-      : 'Import failed: '+msg+'We could not confirm whether it went through. Refresh the products list and check before importing again.';
-
-    summaryEl.textContent=text;
-    btn.disabled=false;
-    // The modal is held open for the duration of the import, but if anything
-    // ever closes it the owner must still be told — silence here reads as
-    // success.
-    if(!document.getElementById('pi-modal').classList.contains('open'))alert(text);
+      : 'Import failed: '+msg+IMPORT_UNCONFIRMED);
     return;
   }
 
