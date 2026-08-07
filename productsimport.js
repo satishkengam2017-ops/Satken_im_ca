@@ -189,6 +189,145 @@ function buildSampleCsv(){
     '8901234567892,Butter Cookies 200g,CK-200,5.99,4.49\n';
 }
 
+/* ── SAMPLE DOWNLOAD ── */
+
+function downloadProductSampleCsv(){
+  var blob=new Blob([buildSampleCsv()],{type:'text/csv'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='product-import-sample.csv';
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+
+/* ── IMPORT ── */
+
+var piPending=null; // rows awaiting confirmation
+
+/* PostgREST caps a response at 1000 rows, so page through — the same approach
+   fetchAllUnmatched() uses. Without this a catalogue over 1000 products would
+   silently report existing items as new. */
+async function fetchExistingBarcodes(){
+  var PAGE=1000, all=[], from=0;
+  while(true){
+    var res=await sb.from('products').select('barcode')
+      .eq('org_id',currentOrgId).range(from,from+PAGE-1);
+    if(res.error)return {error:res.error.message, barcodes:[]};
+    (res.data||[]).forEach(function(r){ all.push(r.barcode); });
+    if(!res.data||res.data.length<PAGE)break;
+    from+=PAGE;
+  }
+  return {error:null, barcodes:all};
+}
+
+function onProductCsvChosen(input){
+  if(!isProductAdmin()){ alert('Only the store owner can import products.'); return; }
+  var file=input.files&&input.files[0];
+  // Clear immediately so choosing the same file twice in a row still fires.
+  input.value='';
+  if(!file)return;
+
+  var reader=new FileReader();
+  reader.onerror=function(){ alert('Could not read that file. Please try again.'); };
+  reader.onload=function(e){ prepareImport(decodeFileBuffer(e.target.result), file.name); };
+  reader.readAsArrayBuffer(file);
+}
+
+async function prepareImport(text, filename){
+  var parsed=parseProductCsv(text);
+
+  var titleEl=document.getElementById('pi-modal-title');
+  var summaryEl=document.getElementById('pi-summary');
+  var issuesEl=document.getElementById('pi-issues');
+  var btn=document.getElementById('pi-import-btn');
+
+  titleEl.textContent='Import '+filename;
+  issuesEl.innerHTML='';
+  summaryEl.textContent='Checking…';
+  btn.disabled=true;
+  piPending=null;
+  document.getElementById('pi-modal').classList.add('open');
+
+  if(parsed.errors.length){
+    summaryEl.innerHTML='<b>'+parsed.errors.length+'</b> problem'+
+      (parsed.errors.length===1?'':'s')+' found. Nothing has been imported.';
+    issuesEl.innerHTML=renderImportIssues(parsed.errors,'', 5);
+    return;
+  }
+
+  if(!parsed.rows.length){
+    summaryEl.textContent='That file has no product rows.';
+    return;
+  }
+
+  // Existing barcodes are what turn "240 rows" into "228 updates" — the number
+  // that reveals a wrong file before it overwrites anything.
+  var existing=await fetchExistingBarcodes();
+  if(existing.error){
+    summaryEl.textContent='Could not check your current catalogue: '+existing.error;
+    return;
+  }
+
+  var sum=summarizeImport(parsed.rows, existing.barcodes);
+  piPending=parsed.rows;
+
+  summaryEl.innerHTML='<b>'+sum.total+'</b> row'+(sum.total===1?'':'s')+
+    ' · <b>'+sum.added+'</b> new · <b>'+sum.updated+'</b> price update'+
+    (sum.updated===1?'':'s')+
+    (parsed.warnings.length?' · <b>'+parsed.warnings.length+'</b> warning'+(parsed.warnings.length===1?'':'s'):'');
+
+  if(parsed.warnings.length)issuesEl.innerHTML=renderImportIssues(parsed.warnings,' warn', 5);
+  btn.disabled=false;
+}
+
+function renderImportIssues(list, cls, limit){
+  var shown=list.slice(0,limit).map(function(it){
+    return '<div class="pi-issue'+cls+'"><span class="pi-line">Line '+it.line+'</span>'+
+      escapeHtml(it.message)+'</div>';
+  }).join('');
+  if(list.length>limit){
+    shown+='<div class="pi-issue'+cls+'">…and '+(list.length-limit)+' more.</div>';
+  }
+  return shown;
+}
+
+function closeImportModal(e){
+  if(e&&e.target!==document.getElementById('pi-modal'))return;
+  document.getElementById('pi-modal').classList.remove('open');
+  piPending=null;
+}
+
+async function runProductImport(){
+  if(!piPending||!piPending.length)return;
+  if(!isProductAdmin()){ alert('Only the store owner can import products.'); return; }
+
+  var btn=document.getElementById('pi-import-btn');
+  var summaryEl=document.getElementById('pi-summary');
+  btn.disabled=true;
+  summaryEl.textContent='Importing…';
+
+  // 'upsert' updates existing barcodes and inserts new ones. Nothing is
+  // deleted. The RPC validates again and runs in one transaction, so if it
+  // raises, nothing at all was written.
+  var res=await sb.rpc('import_products',{
+    p_org_id:currentOrgId,
+    p_rows:piPending,
+    p_mode:'upsert'
+  });
+
+  if(res.error){
+    summaryEl.textContent='Import failed: '+res.error.message+' Nothing was changed.';
+    btn.disabled=false;
+    return;
+  }
+
+  var out=res.data||{};
+  document.getElementById('pi-modal').classList.remove('open');
+  piPending=null;
+  alert('Imported successfully — '+(out.added||0)+' added, '+(out.updated||0)+' updated.');
+  loadProducts();
+}
+
 /* Node export shim — inert in the browser. Later tasks append code ABOVE
    this block; it must stay last in the file. */
 if(typeof module!=='undefined'&&module.exports){
