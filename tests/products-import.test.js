@@ -7,7 +7,8 @@ var {
   parseProductCsv,
   summarizeImport,
   buildSampleCsv,
-  importWasRejected
+  importWasRejected,
+  friendlyDbMessage
 } = require('../productsimport.js');
 
 // ── headers ──
@@ -153,6 +154,23 @@ assert.strictEqual(subCent.rows.length, 0, 'a sub-half-cent MRP is rejected clie
 assert.ok(/at least 0\.01/.test(subCent.errors[0].message), 'and says so readably');
 var oneCent = parseProductCsv('Barcode,Item Name,Item Code,MRP,Sale Price\n1,A,A1,0.01,0.01');
 assert.strictEqual(oneCent.rows.length, 1, 'exactly one cent is still allowed');
+
+// The other end of the same problem: within half a cent of the ceiling, the
+// value rounds UP past numeric(12,2) and raises 22003 numeric field overflow.
+var nearCeiling = parseProductCsv('Barcode,Item Name,Item Code,MRP,Sale Price\n1,A,A1,9999999999.995,10');
+assert.strictEqual(nearCeiling.rows.length, 0, 'an MRP that rounds up past the column ceiling is rejected');
+var justUnder = parseProductCsv('Barcode,Item Name,Item Code,MRP,Sale Price\n1,A,A1,9999999999.99,10');
+assert.strictEqual(justUnder.rows.length, 1, 'the largest storable price is still allowed');
+
+// ── database messages ──
+// Anything the client rules missed must still read as English, not as a
+// constraint name. Mirrors the mapper products.js uses on the Add/Edit path.
+assert.ok(/greater than 0/.test(friendlyDbMessage('new row violates check constraint "products_mrp_positive"')), 'products_mrp_positive is translated');
+assert.ok(/greater than MRP/.test(friendlyDbMessage('violates check constraint "products_sale_le_mrp"')), 'products_sale_le_mrp is translated');
+assert.ok(/too large/.test(friendlyDbMessage('numeric field overflow')), '22003 is translated');
+assert.ok(/store owner/.test(friendlyDbMessage('new row violates row-level security policy')), 'an RLS refusal is translated');
+assert.strictEqual(friendlyDbMessage('some unmapped server error'), 'some unmapped server error', 'anything unmapped passes through unchanged');
+assert.strictEqual(friendlyDbMessage(null), '', 'a null message does not become "null"');
 
 // ── outcome classification ──
 // True only means "Postgres rejected it, so the transaction rolled back and

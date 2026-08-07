@@ -136,17 +136,18 @@ function parseProductCsv(text){
     if(!mrpRaw)rowErrors.push('MRP is required.');
     else if(!CSV_NUMERIC_RE.test(mrpRaw))rowErrors.push('MRP must be a number.');
     else if(!(mrp>0))rowErrors.push('MRP must be greater than 0.');
-    // Prices are stored as numeric(12,2), so anything under half a cent rounds
-    // to 0.00 on insert and then trips products_mrp_positive — surfacing a raw
-    // constraint name to the owner. Catch it here with a readable message.
+    // Prices are stored as numeric(12,2), so the value that matters is the one
+    // AFTER rounding to two places. Under half a cent rounds to 0.00 and trips
+    // products_mrp_positive; within half a cent of MAX_PRICE rounds UP past the
+    // column's ceiling and raises 22003. Both would surface raw Postgres text.
     else if(mrp<0.005)rowErrors.push('MRP must be at least 0.01.');
-    else if(mrp>=MAX_PRICE)rowErrors.push('MRP is too large.');
+    else if(mrp>=MAX_PRICE-0.005)rowErrors.push('MRP is too large.');
     else mrpOk=true;
 
     if(!saleRaw)rowErrors.push('Sale Price is required.');
     else if(!CSV_NUMERIC_RE.test(saleRaw))rowErrors.push('Sale Price must be a number.');
     else if(sale<0)rowErrors.push('Sale Price cannot be negative.');
-    else if(sale>=MAX_PRICE)rowErrors.push('Sale Price is too large.');
+    else if(sale>=MAX_PRICE-0.005)rowErrors.push('Sale Price is too large.');
     else saleOk=true;
 
     if(mrpOk&&saleOk&&sale>mrp)rowErrors.push('Sale Price cannot be greater than MRP.');
@@ -368,6 +369,21 @@ function importWasRejected(code, status){
   return true;
 }
 
+/* A net for anything the client-side rules did not catch first. The Add/Edit
+   path in products.js already maps these; without the same mapping here a bulk
+   import could show an owner a raw constraint name, which the spec rules out.
+   Mirrors products.js — keep the two lists in step. */
+function friendlyDbMessage(msg){
+  var m=String(msg==null?'':msg);
+  if(/products_org_barcode_key/.test(m))return 'That file contains a barcode that already exists on another product.';
+  if(/products_sale_le_mrp/.test(m))return 'Sale Price cannot be greater than MRP.';
+  if(/products_mrp_positive/.test(m))return 'MRP must be greater than 0.';
+  if(/products_sale_price_nonneg/.test(m))return 'Sale Price cannot be negative.';
+  if(/numeric field overflow/i.test(m))return 'A price in that file is too large.';
+  if(/row-level security/i.test(m))return 'Only the store owner can import products.';
+  return m;
+}
+
 function reportImportFailure(text){
   document.getElementById('pi-summary').textContent=text;
   document.getElementById('pi-import-btn').disabled=false;
@@ -417,7 +433,7 @@ async function runProductImport(){
   if(res.error){
     // Never claim the catalogue is untouched when we cannot know it.
     var code=res.error.code?String(res.error.code):'';
-    var msg=endSentence(res.error.message);
+    var msg=endSentence(friendlyDbMessage(res.error.message));
     reportImportFailure(importWasRejected(code, res.status)
       ? 'Import failed: '+msg+'It was rejected before anything was written, so nothing was changed.'
       : 'Import failed: '+msg+IMPORT_UNCONFIRMED);
@@ -440,6 +456,7 @@ if(typeof module!=='undefined'&&module.exports){
     parseProductCsv:parseProductCsv,
     summarizeImport:summarizeImport,
     buildSampleCsv:buildSampleCsv,
-    importWasRejected:importWasRejected
+    importWasRejected:importWasRejected,
+    friendlyDbMessage:friendlyDbMessage
   };
 }
