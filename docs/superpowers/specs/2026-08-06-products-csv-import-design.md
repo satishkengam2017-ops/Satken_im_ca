@@ -92,7 +92,7 @@ Three pure functions carry unit tests in the existing plain-Node style:
 
 - `mapCsvHeaders(cells)` → `{map, error}`; covering exact names, case and spacing variants, accepted synonyms, unknown columns being ignored, and each missing required column.
 - `parseProductCsv(text)` → `{rows, errors, warnings}`; covering a clean file, quoted fields containing commas, CRLF line endings, a blank trailing line, and one case per validation rule above.
-- `summarizeImport(rows, existingBarcodes)` → `{total, added, updated, errorCount, warningCount}`; covering all-new, all-updates, a mix, and an empty file.
+- `summarizeImport(rows, existingBarcodes)` → `{total, added, updated}`; covering all-new, all-updates, a mix, an empty file, and case-insensitive matching against existing barcodes (the database stores them upper-cased).
 
 `productsimport.js` must contain no top-level DOM or Supabase access and must end with a `module.exports` shim, so Node can require it — the same constraint the other modules follow.
 
