@@ -305,8 +305,8 @@ async function prepareImport(text, filename){
   summaryEl.innerHTML='<b>'+sum.total+'</b> row'+(sum.total===1?'':'s')+
     // Not "price updates": an upsert replaces Item Name and Item Code too, so
     // an old export re-imported to fix prices would revert every rename.
-    ' · <b>'+sum.added+'</b> new · <b>'+sum.updated+'</b> update'+
-    (sum.updated===1?'':'s')+
+    ' · <b>'+sum.added+'</b> new · <b>'+sum.updated+'</b> existing product'+
+    (sum.updated===1?'':'s')+' updated'+
     (parsed.warnings.length?' · <b>'+parsed.warnings.length+'</b> warning'+(parsed.warnings.length===1?'':'s'):'');
 
   if(parsed.warnings.length)issuesEl.innerHTML=renderImportIssues(parsed.warnings,' warn', 5);
