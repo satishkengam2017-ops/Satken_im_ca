@@ -438,6 +438,30 @@
      clipped off-screen and unreachable on a small phone. */
   #pm-modal .modal { max-height:90dvh; overflow-y:auto; }
 
+  /* ── PRICE SCAN (add-on module) ── */
+  .ps-hint { font-size:17px; color:var(--muted); margin-bottom:10px; }
+  /* The existing video styling is an #video ID selector, so it does not reach
+     this element — restate it rather than widening the existing rule. */
+  #ps-video { width:100%; height:100%; object-fit:cover; display:block; }
+  /* Own scan line: #scan-line belongs to the stock-count scanner in app.js and
+     is toggled by that module, so this scanner must not share it. The `sweep`
+     keyframes it animates are already defined globally in this stylesheet. */
+  .ps-scanline { position:absolute;left:20px;right:20px;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);display:none;animation:sweep 2s ease-in-out infinite;box-shadow:0 0 8px var(--gold); }
+  .ps-card { background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--card-shadow); padding:18px; margin-bottom:14px; }
+  .ps-card.notfound { border-color:var(--warn); }
+  .ps-name { font-family:'Cinzel',serif; font-size:22px; font-weight:600; color:var(--text); margin-bottom:4px; }
+  .ps-meta { font-family:'JetBrains Mono',monospace; font-size:14px; color:var(--muted); margin-bottom:2px; }
+  .ps-prices { display:flex; align-items:baseline; gap:12px; margin:14px 0 6px; flex-wrap:wrap; }
+  .ps-mrp { font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--dim); text-decoration:line-through; }
+  .ps-sale { font-family:'Cinzel',serif; font-size:38px; font-weight:700; color:var(--gold); text-shadow:0 0 16px var(--gold-glow); line-height:1.1; }
+  .ps-offer { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .ps-discount { display:inline-block; background:var(--gold); color:#FFF8E7; font-family:'Cinzel',serif; font-size:15px; font-weight:700; letter-spacing:1px; padding:4px 12px; border-radius:20px; }
+  .ps-savings { font-size:18px; font-weight:600; color:var(--green); }
+  .ps-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .ps-actions .btn { flex:1 1 45%; justify-content:center; }
+  .ps-notfound-title { font-family:'Cinzel',serif; font-size:20px; font-weight:600; color:var(--warn); margin-bottom:6px; }
+  .ps-error { color:var(--red); font-size:17px; }
+
   /* The extra tab no longer fits a narrow phone at the base type size. */
   @media (max-width:480px){
     .tab-btn { font-size:12px; letter-spacing:0.3px; padding:12px 4px; }
@@ -583,6 +607,7 @@
     <button class="tab-btn" data-tab="inventory" onclick="switchTab('inventory')">Inventory</button>
     <button class="tab-btn" data-tab="unmatched" onclick="switchTab('unmatched')">Report <span class="tab-badge" id="unmatched-badge" style="display:none">0</span></button>
     <button class="tab-btn" data-tab="products" id="tab-btn-products" style="display:none" onclick="switchTab('products'); loadProducts()">Products</button>
+    <button class="tab-btn" data-tab="pricescan" id="tab-btn-pricescan" onclick="switchTab('pricescan')">Price Scan</button>
   </div>
 
   <main>
@@ -778,6 +803,47 @@
       </div>
     </div>
 
+    <!-- ══════════ PRICE SCAN TAB ══════════ -->
+    <div class="tab-panel" id="tab-pricescan">
+      <div class="section-header"><h2>Scan Product</h2></div>
+      <p class="ps-hint">Point your camera at the product barcode.</p>
+
+      <div class="camera-card">
+        <div class="video-wrap">
+          <video id="ps-video" autoplay playsinline muted></video>
+          <div class="viewfinder">
+            <div class="corner tl"></div><div class="corner tr"></div>
+            <div class="corner bl"></div><div class="corner br"></div>
+            <div id="ps-scanline" class="ps-scanline"></div>
+          </div>
+          <div class="placeholder-icon" id="ps-placeholder">
+            <svg viewBox="0 0 24 24" stroke-width="1.2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+            <p>Camera off</p>
+          </div>
+        </div>
+        <div class="camera-footer">
+          <span id="ps-status">Tap Start to scan</span>
+          <button class="btn btn-gold" id="ps-start-btn" onclick="startPriceScanCamera()">
+            <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Start
+          </button>
+          <button class="btn btn-outline" id="ps-stop-btn" onclick="stopPriceScanCamera()" style="display:none">
+            <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            Stop
+          </button>
+        </div>
+      </div>
+
+      <div class="section-header"><h2>Enter Barcode Manually</h2></div>
+      <div class="manual-row" style="margin-bottom:14px">
+        <input class="manual-input" id="ps-manual-barcode" type="text" inputmode="numeric"
+               placeholder="Barcode number" style="flex:1">
+        <button class="btn-add" onclick="submitManualBarcode()">Search</button>
+      </div>
+
+      <div id="ps-result"></div>
+    </div>
+
   </main>
 
   <div class="modal-bg" id="reset-modal" onclick="closeResetModal(event)">
@@ -854,5 +920,6 @@
 <script src="app.js"></script>
 <script src="products.js"></script>
 <script src="productsimport.js"></script>
+<script src="pricescan.js"></script>
 </body>
 </html>

@@ -1,0 +1,148 @@
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Special Offer</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cormorant+Garamond:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg-deep:#FFF8E7; --bg-mid:#FFFDF5; --bg-black:#E8D5A3;
+    --gold:#8B5E34; --gold-glow:rgba(139,94,52,0.25);
+    --text:#5C3A21; --muted:rgba(139,94,52,0.6); --dim:rgba(92,58,33,0.35);
+    --green:#6DBE8C;
+    --surface:rgba(255,250,240,0.75); --border:rgba(139,94,52,0.35);
+  }
+  html,body{min-height:100%}
+  body{
+    font-family:'Cormorant Garamond',serif;
+    background:radial-gradient(ellipse at top,var(--bg-mid) 0%,var(--bg-deep) 60%,var(--bg-black) 100%);
+    background-attachment:fixed;
+    color:var(--text);
+    display:flex;align-items:center;justify-content:center;
+    padding:24px;min-height:100dvh;
+  }
+  .exit{
+    position:fixed;top:12px;right:14px;background:none;border:none;
+    font-family:'Cormorant Garamond',serif;font-size:15px;color:var(--muted);
+    cursor:pointer;opacity:0.55;
+  }
+  .exit:hover{opacity:1}
+  .wrap{width:100%;max-width:980px;text-align:center}
+  .eyebrow{
+    font-family:'Cinzel',serif;font-size:15px;font-weight:700;letter-spacing:4px;
+    text-transform:uppercase;color:var(--gold);margin-bottom:18px;
+  }
+  .name{
+    font-family:'Cinzel',serif;font-weight:700;color:var(--text);
+    font-size:clamp(30px,5.5vw,60px);line-height:1.15;
+  }
+  .code{
+    font-family:'JetBrains Mono',monospace;font-size:clamp(13px,1.4vw,17px);
+    color:var(--muted);margin-top:8px;
+  }
+  .prices{
+    display:grid;grid-template-columns:1fr;gap:14px;
+    margin:34px auto 0;max-width:760px;
+  }
+  .cell{
+    background:var(--surface);border:1px solid var(--border);border-radius:18px;
+    padding:22px 18px;
+  }
+  .cell .label{
+    font-family:'Cinzel',serif;font-size:14px;font-weight:600;letter-spacing:2.5px;
+    text-transform:uppercase;color:var(--muted);margin-bottom:8px;
+  }
+  .mrp{
+    font-family:'JetBrains Mono',monospace;color:var(--dim);
+    text-decoration:line-through;font-size:clamp(26px,3.4vw,40px);
+  }
+  .sale{
+    font-family:'Cinzel',serif;font-weight:700;color:var(--gold);
+    font-size:clamp(52px,9vw,116px);line-height:1;
+    text-shadow:0 0 28px var(--gold-glow);
+  }
+  .discount{
+    display:inline-block;margin-top:30px;background:var(--gold);color:#FFF8E7;
+    font-family:'Cinzel',serif;font-weight:700;letter-spacing:3px;
+    font-size:clamp(22px,3.6vw,44px);padding:10px 30px;border-radius:60px;
+  }
+  .savings{
+    margin-top:18px;font-weight:600;color:var(--green);
+    font-size:clamp(20px,2.8vw,34px);
+  }
+  .idle{font-size:clamp(18px,2.4vw,26px);color:var(--muted)}
+  /* Two-column price comparison once there is room; stacked below that. */
+  @media (min-width:600px){
+    .prices{grid-template-columns:1fr 1fr}
+  }
+</style>
+
+<button class="exit" onclick="window.close()">Exit customer view</button>
+
+<div class="wrap" id="wrap">
+  <div class="idle">Waiting for a product…</div>
+</div>
+
+<script>
+var STORAGE_KEY='satken_customer_product';
+var CHANNEL='satken-customer';
+
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function money(v){
+  if(v===null||v===undefined||v==='')return '';
+  var n=Number(v);
+  if(!isFinite(n))return '';
+  return '$'+n.toFixed(2);
+}
+
+function render(p){
+  var wrap=document.getElementById('wrap');
+  if(!p||!p.itemName){
+    wrap.innerHTML='<div class="idle">Waiting for a product…</div>';
+    return;
+  }
+
+  // Discount and savings are shown only when the data actually carries them.
+  // Nothing here is computed or embellished.
+  var pct=Number(p.discountPct);
+  var hasOffer=isFinite(pct)&&pct>0;
+  // Shown only when there is a real number to show. Gating the savings line on
+  // discountPct alone would render a bare "You Save" with nothing after it if
+  // the two values ever disagree.
+  var savings=money(p.savingsAmount);
+
+  wrap.innerHTML=
+    '<div class="eyebrow">'+(hasOffer?'Special Offer':'Price')+'</div>'+
+    '<div class="name">'+esc(p.itemName)+'</div>'+
+    (p.itemCode?'<div class="code">'+esc(p.itemCode)+'</div>':'')+
+    '<div class="prices">'+
+      '<div class="cell"><div class="label">MRP</div><div class="mrp">'+esc(money(p.mrp))+'</div></div>'+
+      '<div class="cell"><div class="label">Sale Price</div><div class="sale">'+esc(money(p.salePrice))+'</div></div>'+
+    '</div>'+
+    (hasOffer
+      ? '<div class="discount">'+Math.round(pct)+'% OFF</div>'+
+        (savings?'<div class="savings">You Save '+esc(savings)+'</div>':'')
+      : '');
+}
+
+function readStored(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'); }
+  catch(e){ return null; }
+}
+
+render(readStored());
+
+if(typeof BroadcastChannel!=='undefined'){
+  new BroadcastChannel(CHANNEL).onmessage=function(e){ render(e.data); };
+}
+
+// Fallback for browsers without BroadcastChannel, and a safety net if a
+// message is posted while this window is still loading.
+window.addEventListener('storage',function(e){
+  if(e.key===STORAGE_KEY)render(readStored());
+});
+</script>
