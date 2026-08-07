@@ -408,6 +408,19 @@
   /* `.pm-table th` is more specific than `.pm-col-check`, so the header cell
      needs this to match the centring of the body cells. */
   .pm-table th.pm-col-check { text-align:center; }
+
+  /* ── PRODUCT CSV IMPORT (add-on) ── */
+  .pi-summary { font-size:17px; color:var(--text); line-height:1.7; margin-bottom:12px; }
+  .pi-summary b { color:var(--gold); }
+  .pi-issues { max-height:220px; overflow-y:auto; margin-bottom:14px; }
+  .pi-issue { font-size:15px; color:var(--red); padding:4px 0; border-bottom:1px solid var(--border-soft); }
+  .pi-issue:last-child { border-bottom:none; }
+  .pi-issue.warn { color:var(--warn); }
+  .pi-issue .pi-line { font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--muted); margin-right:6px; }
+  /* The product modal already needs this; the import modal can be just as tall
+     once it is listing issues, and .modal-bg is a fixed flex-end container
+     with no scroll of its own. */
+  #pi-modal .modal { max-height:90dvh; overflow-y:auto; }
   .pm-check { width:16px; height:16px; cursor:pointer; accent-color:var(--gold); }
   .pm-sortable { cursor:pointer; user-select:none; }
   .pm-sortable:hover { color:var(--gold); }
@@ -714,9 +727,12 @@
       <div class="pm-toolbar">
         <h2>Product Catalogue</h2>
         <div class="pm-toolbar-actions">
+          <button class="pm-btn-sm" onclick="downloadProductSampleCsv()">Sample CSV</button>
+          <button class="pm-btn-sm" onclick="document.getElementById('pi-file-input').click()">Import CSV</button>
           <button class="pm-btn-sm" onclick="openProductModal()">Add Product</button>
           <button class="pm-btn-sm danger" id="pm-delete-selected" disabled onclick="deleteSelectedProducts()">Delete Selected</button>
         </div>
+        <input type="file" id="pi-file-input" accept=".csv,text/csv" style="display:none" onchange="onProductCsvChosen(this)">
       </div>
 
       <input class="manual-input pm-search" id="pm-search" type="text"
@@ -778,6 +794,18 @@
     </div>
   </div>
 
+  <div class="modal-bg" id="pi-modal" onclick="closeImportModal(event)">
+    <div class="modal">
+      <h3 id="pi-modal-title">Import Products</h3>
+      <div class="pi-summary" id="pi-summary"></div>
+      <div class="pi-issues" id="pi-issues"></div>
+      <div class="modal-btns">
+        <button class="btn btn-outline" onclick="closeImportModal()">Cancel</button>
+        <button class="btn btn-gold" id="pi-import-btn" onclick="runProductImport()">Import</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-bg" id="pm-modal" onclick="closeProductModal(event)">
     <div class="modal">
       <h3 id="pm-modal-title">Add Product</h3>
@@ -825,5 +853,6 @@
 <script src="auth.js"></script>
 <script src="app.js"></script>
 <script src="products.js"></script>
+<script src="productsimport.js"></script>
 </body>
 </html>
