@@ -202,7 +202,9 @@ function downloadProductSampleCsv(){
 
 /* ── IMPORT ── */
 
-var piPending=null; // rows awaiting confirmation
+var piPending=null;    // rows awaiting confirmation
+var piPrepareSeq=0;    // see prepareImport — mirrors productsRequestSeq in products.js
+var piImporting=false; // true only while the import RPC is in flight
 
 /* PostgREST caps a response at 1000 rows, so page through — the same approach
    fetchAllUnmatched() uses. Without this a catalogue over 1000 products would
@@ -229,11 +231,26 @@ function onProductCsvChosen(input){
 
   var reader=new FileReader();
   reader.onerror=function(){ alert('Could not read that file. Please try again.'); };
-  reader.onload=function(e){ prepareImport(decodeFileBuffer(e.target.result), file.name); };
+  reader.onload=function(e){ startImportCheck(decodeFileBuffer(e.target.result), file.name); };
   reader.readAsArrayBuffer(file);
 }
 
+/* prepareImport is async, so anything it throws becomes an unhandled rejection
+   that leaves the modal stuck on "Checking…" saying nothing. Every caller goes
+   through here so the failure is always reported. */
+function startImportCheck(text, filename){
+  prepareImport(text, filename).catch(function(err){
+    alert('Could not prepare that import: '+((err&&err.message)||err));
+  });
+}
+
 async function prepareImport(text, filename){
+  // Two checks can be in flight at once: the user can dismiss the modal during
+  // "Checking…" and pick a second file. Without this, the slower response
+  // writes its rows into piPending and enables Import while the modal title
+  // names the other file — the same guard products.js uses for loadProducts.
+  var seq=++piPrepareSeq;
+
   var parsed=parseProductCsv(text);
 
   var titleEl=document.getElementById('pi-modal-title');
@@ -263,8 +280,18 @@ async function prepareImport(text, filename){
   // Existing barcodes are what turn "240 rows" into "228 updates" — the number
   // that reveals a wrong file before it overwrites anything.
   var existing=await fetchExistingBarcodes();
+  if(seq!==piPrepareSeq)return; // superseded by a newer file — touch nothing
+
   if(existing.error){
     summaryEl.textContent='Could not check your current catalogue: '+existing.error;
+    // Without a retry the only way forward from a transient blip is to close
+    // the modal and re-pick the same file.
+    var retryBtn=document.createElement('button');
+    retryBtn.className='btn btn-outline';
+    retryBtn.textContent='Try again';
+    retryBtn.onclick=function(){ startImportCheck(text, filename); };
+    issuesEl.innerHTML='';
+    issuesEl.appendChild(retryBtn);
     return;
   }
 
@@ -293,11 +320,24 @@ function renderImportIssues(list, cls, limit){
 
 function closeImportModal(e){
   if(e&&e.target!==document.getElementById('pi-modal'))return;
+  // Closing cannot abort an RPC that is already on the wire: it will commit
+  // whatever the modal does. Rather than let a button labelled Cancel imply
+  // otherwise, the modal simply stays put until the import reports back.
+  if(piImporting)return;
   document.getElementById('pi-modal').classList.remove('open');
   piPending=null;
 }
 
+/* Server messages arrive without a trailing period, so the sentence that
+   follows would run straight into them. */
+function endSentence(s){
+  var t=String(s==null?'':s).trim();
+  if(!t)return '';
+  return (/[.!?]$/.test(t)?t:t+'.')+' ';
+}
+
 async function runProductImport(){
+  if(piImporting)return; // a second click while the first RPC is in flight
   if(!piPending||!piPending.length)return;
   if(!isProductAdmin()){ alert('Only the store owner can import products.'); return; }
 
@@ -305,6 +345,7 @@ async function runProductImport(){
   var summaryEl=document.getElementById('pi-summary');
   btn.disabled=true;
   summaryEl.textContent='Importing…';
+  piImporting=true;
 
   // 'upsert' updates existing barcodes and inserts new ones. Nothing is
   // deleted. The RPC validates again and runs in one transaction, so if it
@@ -315,9 +356,26 @@ async function runProductImport(){
     p_mode:'upsert'
   });
 
+  piImporting=false;
+
   if(res.error){
-    summaryEl.textContent='Import failed: '+res.error.message+' Nothing was changed.';
+    // A rejection from Postgres carries a SQLSTATE, and the RPC is a single
+    // transaction, so that case really did change nothing. A transport failure
+    // carries no code and proves nothing: the transaction may have committed
+    // with the response lost on the way back. Never claim the catalogue is
+    // untouched when we cannot know it.
+    var code=res.error.code?String(res.error.code):'';
+    var msg=endSentence(res.error.message);
+    var text=/^[0-9A-Za-z]{5}$/.test(code)
+      ? 'Import failed: '+msg+'It was rejected before anything was written, so nothing was changed.'
+      : 'Import failed: '+msg+'We could not confirm whether it went through. Refresh the products list and check before importing again.';
+
+    summaryEl.textContent=text;
     btn.disabled=false;
+    // The modal is held open for the duration of the import, but if anything
+    // ever closes it the owner must still be told — silence here reads as
+    // success.
+    if(!document.getElementById('pi-modal').classList.contains('open'))alert(text);
     return;
   }
 
