@@ -76,6 +76,13 @@ assert.ok(/Sale Price/i.test(firstError('123456,Item,C,10,')), 'missing sale pri
 assert.ok(/Sale Price/i.test(firstError('123456,Item,C,10,-1')), 'negative sale price is an error');
 assert.ok(/greater than MRP/i.test(firstError('123456,Item,C,10,12')), 'sale price above MRP is an error');
 assert.ok(/too large/i.test(firstError('123456,Item,C,10000000000,5')), 'a price at the numeric(12,2) ceiling is an error');
+// Scientific notation is accepted as a format, so the magnitude ceiling has to
+// hold for that form too. Without these the client would pass 5E12 through and
+// the database would answer with a raw "numeric field overflow" rather than a
+// readable message.
+assert.ok(/MRP is too large/i.test(firstError('123456,Item,C,5E12,5')), 'an oversized MRP in scientific notation is caught client-side');
+assert.ok(/MRP is too large/i.test(firstError('123456,Item,C,1.5e11,5')), 'lower-case exponent form is caught too');
+assert.ok(/Sale Price is too large/i.test(firstError('123456,Item,C,10,5E12')), 'an oversized Sale Price in scientific notation is caught client-side');
 
 var dupBarcode = parseProductCsv(
   'Barcode,Item Name,MRP,Sale Price\n' +
