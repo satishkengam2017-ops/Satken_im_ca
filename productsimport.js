@@ -136,6 +136,10 @@ function parseProductCsv(text){
     if(!mrpRaw)rowErrors.push('MRP is required.');
     else if(!CSV_NUMERIC_RE.test(mrpRaw))rowErrors.push('MRP must be a number.');
     else if(!(mrp>0))rowErrors.push('MRP must be greater than 0.');
+    // Prices are stored as numeric(12,2), so anything under half a cent rounds
+    // to 0.00 on insert and then trips products_mrp_positive — surfacing a raw
+    // constraint name to the owner. Catch it here with a readable message.
+    else if(mrp<0.005)rowErrors.push('MRP must be at least 0.01.');
     else if(mrp>=MAX_PRICE)rowErrors.push('MRP is too large.');
     else mrpOk=true;
 
@@ -339,13 +343,24 @@ function endSentence(s){
 var IMPORT_UNCONFIRMED='We could not confirm whether it went through. '+
   'Refresh the products list and check before importing again.';
 
-/* A SQLSTATE proves Postgres rejected the statement, and the RPC is a single
-   transaction, so nothing was written. Two classes are the exception: class 08
-   is a connection exception and 57P01 is the server terminating the
-   connection. Both are five characters, but both mean the link died mid-flight
-   — the transaction may well have committed. Treat them as unknown. */
-function importWasRejected(code){
-  if(!/^[0-9A-Za-z]{5}$/.test(code))return false;
+/* Did Postgres reject the call outright — meaning the single-transaction RPC
+   rolled back and nothing was written?
+
+   Requires BOTH a 4xx status and a SQLSTATE-shaped code. The status proves the
+   server answered at all. The shape check is deliberately narrower than "five
+   alphanumeric characters", because EPIPE and EPERM are also five characters
+   and mean the opposite: every real SQLSTATE class begins with a digit or with
+   F, H, P or X, so no E-prefixed errno can pass.
+
+   Two SQLSTATEs are then carved out: class 08 is a connection exception and
+   57P01 is the server terminating the connection. Both mean the link died
+   mid-flight, so the transaction may well have committed.
+
+   Anything unrecognised falls through to false, which is the cautious answer:
+   we say we could not confirm, rather than promising nothing changed. */
+function importWasRejected(code, status){
+  if(!(status>=400&&status<500))return false;
+  if(!/^[0-9FHPX][0-9A-Z]{4}$/.test(code))return false;
   if(/^08/.test(code))return false;
   if(code==='57P01')return false;
   return true;
@@ -401,7 +416,7 @@ async function runProductImport(){
     // Never claim the catalogue is untouched when we cannot know it.
     var code=res.error.code?String(res.error.code):'';
     var msg=endSentence(res.error.message);
-    reportImportFailure(importWasRejected(code)
+    reportImportFailure(importWasRejected(code, res.status)
       ? 'Import failed: '+msg+'It was rejected before anything was written, so nothing was changed.'
       : 'Import failed: '+msg+IMPORT_UNCONFIRMED);
     return;
@@ -422,6 +437,7 @@ if(typeof module!=='undefined'&&module.exports){
     mapCsvHeaders:mapCsvHeaders,
     parseProductCsv:parseProductCsv,
     summarizeImport:summarizeImport,
-    buildSampleCsv:buildSampleCsv
+    buildSampleCsv:buildSampleCsv,
+    importWasRejected:importWasRejected
   };
 }

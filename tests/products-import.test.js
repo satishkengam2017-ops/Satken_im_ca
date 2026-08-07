@@ -6,7 +6,8 @@ var {
   mapCsvHeaders,
   parseProductCsv,
   summarizeImport,
-  buildSampleCsv
+  buildSampleCsv,
+  importWasRejected
 } = require('../productsimport.js');
 
 // ── headers ──
@@ -143,5 +144,33 @@ assert.ok(!/Discount|Savings/i.test(sample), 'the sample omits generated columns
 var sampleParsed = parseProductCsv(sample);
 assert.strictEqual(sampleParsed.errors.length, 0, 'the sample file parses through the importer with no errors');
 assert.ok(sampleParsed.rows.length >= 1, 'the sample contains at least one example row');
+
+// ── sub-cent MRP ──
+// numeric(12,2) rounds anything under half a cent to 0.00, which then trips
+// products_mrp_positive and shows the owner a raw constraint name.
+var subCent = parseProductCsv('Barcode,Item Name,Item Code,MRP,Sale Price\n1,A,A1,0.004,0.001');
+assert.strictEqual(subCent.rows.length, 0, 'a sub-half-cent MRP is rejected client-side');
+assert.ok(/at least 0\.01/.test(subCent.errors[0].message), 'and says so readably');
+var oneCent = parseProductCsv('Barcode,Item Name,Item Code,MRP,Sale Price\n1,A,A1,0.01,0.01');
+assert.strictEqual(oneCent.rows.length, 1, 'exactly one cent is still allowed');
+
+// ── outcome classification ──
+// True only means "Postgres rejected it, so the transaction rolled back and
+// nothing was written". Every uncertain case must be false, because false
+// tells the owner to go and check rather than promising them nothing changed.
+assert.strictEqual(importWasRejected('P0001', 400), true, 'a raise_exception with a 4xx really did roll back');
+assert.strictEqual(importWasRejected('23514', 400), true, 'so did a check-constraint violation');
+assert.strictEqual(importWasRejected('42501', 403), true, 'so did an RLS refusal');
+['08000','08003','08006','08P01'].forEach(function(c){
+  assert.strictEqual(importWasRejected(c, 400), false, c + ' is a dead connection, not a rollback we can vouch for');
+});
+assert.strictEqual(importWasRejected('57P01', 400), false, 'admin shutdown leaves the outcome unknown');
+assert.strictEqual(importWasRejected('EPIPE', 400), false, 'a 5-char errno is not a SQLSTATE');
+assert.strictEqual(importWasRejected('EPERM', 400), false, 'nor is EPERM');
+assert.strictEqual(importWasRejected('P0001', undefined), false, 'no status means the server never answered');
+assert.strictEqual(importWasRejected('P0001', 0), false, 'nor does a zero status');
+assert.strictEqual(importWasRejected('P0001', 500), false, 'a 5xx is not proof the statement was rejected');
+assert.strictEqual(importWasRejected('', 400), false, 'an empty code proves nothing');
+assert.strictEqual(importWasRejected('PGRST301', 400), false, 'a PostgREST code is not a SQLSTATE');
 
 console.log('products import tests passed');
